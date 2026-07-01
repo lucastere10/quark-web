@@ -27,6 +27,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN corepack install
 RUN pnpm --filter web build
+RUN mkdir -p apps/web/public
 
 FROM base AS runner
 
