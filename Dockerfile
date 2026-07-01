@@ -18,7 +18,9 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
 
-COPY --from=deps /app/node_modules ./node_modules
+# Copy full pnpm install tree (root + workspace node_modules symlinks)
+COPY --from=deps /app ./
+# Overlay source; .dockerignore excludes local node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
