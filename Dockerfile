@@ -1,7 +1,7 @@
 FROM node:20-alpine AS base
 
 RUN apk add --no-cache libc6-compat
-RUN corepack enable && corepack prepare pnpm@10.33.4 --activate
+RUN corepack enable
 
 WORKDIR /app
 
@@ -13,6 +13,7 @@ COPY packages/ui/package.json ./packages/ui/
 COPY packages/eslint-config/package.json ./packages/eslint-config/
 COPY packages/typescript-config/package.json ./packages/typescript-config/
 
+RUN corepack install
 RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
@@ -22,6 +23,7 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
+RUN corepack install
 RUN pnpm --filter web build
 
 FROM base AS runner

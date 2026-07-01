@@ -5,7 +5,7 @@
 Interactive artificial life simulation where creatures survive with small neural networks and genetic algorithms — no scripted behaviors, no pathfinding, no hand-tuned AI.
 
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
-[![pnpm](https://img.shields.io/badge/pnpm-10.33-blue)](package.json)
+[![pnpm](https://img.shields.io/badge/pnpm-8.15-blue)](package.json)
 
 ## What it does
 
@@ -36,7 +36,7 @@ You can watch evolution in real time, tweak parameters (mutation rate, food dens
 
 ## Getting started
 
-**Requirements:** Node.js ≥ 20, pnpm 10
+**Requirements:** Node.js ≥ 20, pnpm 8 (via Corepack: `corepack enable && corepack install`)
 
 ```bash
 git clone <repo-url>
