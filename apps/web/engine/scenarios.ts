@@ -68,6 +68,28 @@ export const SCENARIOS: Scenario[] = [
       visionRange: 180,
     },
   },
+  {
+    id: "foraging-grounds",
+    name: "Foraging Grounds",
+    description: "Clustered food patches reward migration and local search.",
+    config: {
+      foodDistribution: "cluster",
+      foodDensity: 100,
+      poisonDensity: 15,
+      selectionPressure: 0.45,
+    },
+  },
+  {
+    id: "rocky-terrain",
+    name: "Rocky Terrain",
+    description: "Obstacles block direct paths — navigation must evolve.",
+    config: {
+      obstacleCount: 12,
+      foodDensity: 90,
+      poisonDensity: 12,
+      selectionPressure: 0.55,
+    },
+  },
 ]
 
 export function getScenarioById(id: string): Scenario | undefined {
@@ -98,5 +120,9 @@ export function randomizeConfig(): Partial<SimulationConfig> {
     initialEnergy: randomInt(50, 150, 5),
     visionRange: randomInt(40, 250, 10),
     maxSpeed: randomFloat(0.5, 5, 0.1),
+    noiseStrength: randomFloat(0, 0.5, 0.05),
+    foodDistribution: Math.random() < 0.5 ? "uniform" : "cluster",
+    obstacleCount: randomInt(0, 16, 2),
+    eliteCount: randomInt(0, 5, 1),
   }
 }

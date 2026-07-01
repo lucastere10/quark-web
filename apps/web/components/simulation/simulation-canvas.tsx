@@ -9,12 +9,17 @@ const COLORS = {
   background: 0x06060f,
   food: 0x22ff77,
   poison: 0xff2244,
+  obstacle: 0x4a4a5a,
   creatureLow: 0x00e5cc,
   creatureHigh: 0xff9900,
   selected: 0xffffff,
+  elite: 0xffcc00,
+  vision: 0x00e5cc,
+  trail: 0x00e5cc,
 }
 
 const FADE_DURATION_MS = 450
+const TRAIL_LENGTH = 20
 
 interface WorldTransform {
   scale: number
@@ -22,17 +27,22 @@ interface WorldTransform {
   offsetY: number
 }
 
+function clampChannel(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)))
+}
+
 function fitnessColor(fitness: number, maxFitness: number): number {
-  const t = maxFitness > 0 ? Math.min(1, fitness / maxFitness) : 0
-  const r = Math.round(
+  const safeMax = Math.max(maxFitness, 1)
+  const t = Math.max(0, Math.min(1, Math.max(0, fitness) / safeMax))
+  const r = clampChannel(
     ((COLORS.creatureLow >> 16) & 0xff) * (1 - t) +
       ((COLORS.creatureHigh >> 16) & 0xff) * t,
   )
-  const g = Math.round(
+  const g = clampChannel(
     ((COLORS.creatureLow >> 8) & 0xff) * (1 - t) +
       ((COLORS.creatureHigh >> 8) & 0xff) * t,
   )
-  const b = Math.round(
+  const b = clampChannel(
     (COLORS.creatureLow & 0xff) * (1 - t) + (COLORS.creatureHigh & 0xff) * t,
   )
   return (r << 16) | (g << 8) | b
@@ -48,7 +58,9 @@ export function SimulationCanvas() {
   const worldLayerRef = useRef<Container | null>(null)
   const creatureGraphicsRef = useRef<Map<number, Graphics>>(new Map())
   const resourceGraphicsRef = useRef<Map<number, Graphics>>(new Map())
+  const obstacleGraphicsRef = useRef<Map<number, Graphics>>(new Map())
   const spawnTimesRef = useRef<Map<number, number>>(new Map())
+  const trailRef = useRef<Map<number, { x: number; y: number }[]>>(new Map())
   const transformRef = useRef<WorldTransform>({
     scale: 1,
     offsetX: 0,
@@ -57,12 +69,14 @@ export function SimulationCanvas() {
   const renderStateRef = useRef({
     creatures: useSimulationStore.getState().creatures,
     resources: useSimulationStore.getState().resources,
+    obstacles: useSimulationStore.getState().obstacles,
     selectedCreatureId: null as number | null,
     config: useSimulationStore.getState().config,
   })
 
   const creatures = useSimulationStore((s) => s.creatures)
   const resources = useSimulationStore((s) => s.resources)
+  const obstacles = useSimulationStore((s) => s.obstacles)
   const config = useSimulationStore((s) => s.config)
   const phase = useSimulationStore((s) => s.phase)
   const selectedCreatureId = useSimulationStore((s) => s.selectedCreatureId)
@@ -70,6 +84,7 @@ export function SimulationCanvas() {
   renderStateRef.current = {
     creatures,
     resources,
+    obstacles,
     selectedCreatureId,
     config,
   }
@@ -95,16 +110,60 @@ export function SimulationCanvas() {
     const worldLayer = worldLayerRef.current
     if (!worldLayer) return
 
-    const { creatures, resources, selectedCreatureId, config } =
+    const { creatures, resources, obstacles, selectedCreatureId } =
       renderStateRef.current
     const maxFitness = Math.max(...creatures.map((c) => c.fitness), 1)
     const activeCreatureIds = new Set(creatures.map((c) => c.id))
     const activeResourceIds = new Set(resources.map((r) => r.id))
+    const activeObstacleIds = new Set(obstacles.map((o) => o.id))
+
+    const topEliteIds = new Set(
+      [...creatures]
+        .sort((a, b) => b.fitness - a.fitness)
+        .slice(0, 3)
+        .map((c) => c.id),
+    )
 
     for (const id of spawnTimesRef.current.keys()) {
-      if (!activeCreatureIds.has(id) && !activeResourceIds.has(id)) {
+      if (
+        !activeCreatureIds.has(id) &&
+        !activeResourceIds.has(id) &&
+        !activeObstacleIds.has(id)
+      ) {
         spawnTimesRef.current.delete(id)
       }
+    }
+
+    for (const [id, gfx] of obstacleGraphicsRef.current) {
+      if (!activeObstacleIds.has(id)) {
+        worldLayer.removeChild(gfx)
+        gfx.destroy()
+        obstacleGraphicsRef.current.delete(id)
+      }
+    }
+
+    for (const obstacle of obstacles) {
+      if (!spawnTimesRef.current.has(obstacle.id)) {
+        spawnTimesRef.current.set(obstacle.id, now)
+      }
+
+      let gfx = obstacleGraphicsRef.current.get(obstacle.id)
+      if (!gfx) {
+        gfx = new Graphics()
+        obstacleGraphicsRef.current.set(obstacle.id, gfx)
+        worldLayer.addChildAt(gfx, 0)
+      }
+
+      const alpha = fadeAlpha(
+        spawnTimesRef.current.get(obstacle.id) ?? now,
+        now,
+      )
+
+      gfx.clear()
+      gfx.circle(obstacle.x, obstacle.y, obstacle.radius)
+      gfx.fill({ color: COLORS.obstacle, alpha: 0.55 * alpha })
+      gfx.circle(obstacle.x, obstacle.y, obstacle.radius)
+      gfx.stroke({ color: COLORS.obstacle, width: 1, alpha: 0.8 * alpha })
     }
 
     for (const [id, gfx] of resourceGraphicsRef.current) {
@@ -143,6 +202,7 @@ export function SimulationCanvas() {
         worldLayer.removeChild(gfx)
         gfx.destroy()
         creatureGraphicsRef.current.delete(id)
+        trailRef.current.delete(id)
       }
     }
 
@@ -171,16 +231,59 @@ export function SimulationCanvas() {
       )
       const color = fitnessColor(creature.fitness, maxFitness)
       const isSelected = creature.id === selectedCreatureId
+      const isElite = topEliteIds.has(creature.id)
+
+      if (isSelected) {
+        const trail = trailRef.current.get(creature.id) ?? []
+        trail.push({ x: creature.x, y: creature.y })
+        if (trail.length > TRAIL_LENGTH) trail.shift()
+        trailRef.current.set(creature.id, trail)
+      }
 
       gfx.clear()
       gfx.hitArea = new Circle(creature.x, creature.y, creature.size + 8)
+
+      if (isSelected) {
+        const trail = trailRef.current.get(creature.id) ?? []
+        if (trail.length > 1) {
+          gfx.moveTo(trail[0]!.x, trail[0]!.y)
+          for (let i = 1; i < trail.length; i++) {
+            gfx.lineTo(trail[i]!.x, trail[i]!.y)
+          }
+          gfx.stroke({
+            color: COLORS.trail,
+            width: 1,
+            alpha: 0.35 * entityAlpha,
+          })
+        }
+
+        gfx.circle(creature.x, creature.y, creature.visionRange)
+        gfx.stroke({
+          color: COLORS.vision,
+          width: 1,
+          alpha: 0.25 * entityAlpha,
+        })
+      }
+
+      if (isElite && !isSelected) {
+        gfx.circle(creature.x, creature.y, creature.size + 6)
+        gfx.stroke({
+          color: COLORS.elite,
+          width: 1.5,
+          alpha: 0.75 * entityAlpha,
+        })
+      }
 
       gfx.circle(creature.x, creature.y, creature.size)
       gfx.fill({ color, alpha: 0.85 * entityAlpha })
 
       if (isSelected) {
         gfx.circle(creature.x, creature.y, creature.size + 4)
-        gfx.stroke({ color: COLORS.selected, width: 1.5, alpha: 0.9 * entityAlpha })
+        gfx.stroke({
+          color: COLORS.selected,
+          width: 1.5,
+          alpha: 0.9 * entityAlpha,
+        })
       }
 
       const tipX = creature.x + Math.cos(creature.angle) * (creature.size + 4)
@@ -257,7 +360,9 @@ export function SimulationCanvas() {
       worldLayerRef.current = null
       creatureGraphicsRef.current.clear()
       resourceGraphicsRef.current.clear()
+      obstacleGraphicsRef.current.clear()
       spawnTimesRef.current.clear()
+      trailRef.current.clear()
     }
   }, [])
 
@@ -275,11 +380,17 @@ export function SimulationCanvas() {
     worldLayer.scale.set(scale)
     worldLayer.position.set(offsetX, offsetY)
     transformRef.current = { scale, offsetX, offsetY }
-  }, [config.worldWidth, config.worldHeight, creatures.length, resources.length])
+  }, [
+    config.worldWidth,
+    config.worldHeight,
+    creatures.length,
+    resources.length,
+    obstacles.length,
+  ])
 
   useEffect(() => {
     redrawScene(performance.now())
-  }, [creatures, resources, selectedCreatureId])
+  }, [creatures, resources, obstacles, selectedCreatureId])
 
   return (
     <div

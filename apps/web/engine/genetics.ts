@@ -10,7 +10,7 @@ export interface CreatureTraits {
   metabolism: number
 }
 
-const DEFAULT_TRAITS: CreatureTraits = {
+export const DEFAULT_TRAITS: CreatureTraits = {
   visionRange: 120,
   maxSpeed: 2.5,
   size: 6,
@@ -25,14 +25,17 @@ function gaussianRandom(): number {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
 }
 
-export function createRandomDNA(): Float32Array {
+export function createRandomDNA(
+  traitDefaults: Partial<CreatureTraits> = {},
+): Float32Array {
+  const traits = { ...DEFAULT_TRAITS, ...traitDefaults }
   const dna = new Float32Array(DNA_LENGTH)
   const weights = NeuralNetwork.createRandomWeights()
   dna.set(weights, 0)
-  dna[WEIGHT_COUNT] = DEFAULT_TRAITS.visionRange
-  dna[WEIGHT_COUNT + 1] = DEFAULT_TRAITS.maxSpeed
-  dna[WEIGHT_COUNT + 2] = DEFAULT_TRAITS.size
-  dna[WEIGHT_COUNT + 3] = DEFAULT_TRAITS.metabolism
+  dna[WEIGHT_COUNT] = traits.visionRange
+  dna[WEIGHT_COUNT + 1] = traits.maxSpeed
+  dna[WEIGHT_COUNT + 2] = traits.size
+  dna[WEIGHT_COUNT + 3] = traits.metabolism
   return dna
 }
 
@@ -41,7 +44,11 @@ export function extractTraits(dna: Float32Array): CreatureTraits {
     visionRange: clamp(dna[WEIGHT_COUNT] ?? DEFAULT_TRAITS.visionRange, 40, 250),
     maxSpeed: clamp(dna[WEIGHT_COUNT + 1] ?? DEFAULT_TRAITS.maxSpeed, 0.5, 5),
     size: clamp(dna[WEIGHT_COUNT + 2] ?? DEFAULT_TRAITS.size, 3, 12),
-    metabolism: clamp(dna[WEIGHT_COUNT + 3] ?? DEFAULT_TRAITS.metabolism, 0.005, 0.08),
+    metabolism: clamp(
+      dna[WEIGHT_COUNT + 3] ?? DEFAULT_TRAITS.metabolism,
+      0.005,
+      0.08,
+    ),
   }
 }
 

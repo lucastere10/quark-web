@@ -4,6 +4,7 @@ import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { X } from "lucide-react"
 
+import { getBehaviorHint } from "@/lib/behavior-hint"
 import { useSimulationStore } from "@/store/simulation-store"
 
 import { BrainExpandButton } from "./brain-panel"
@@ -18,6 +19,8 @@ export function CreatureInspector() {
   const creature = creatures.find((c) => c.id === selectedCreatureId)
 
   if (!creature) return null
+
+  const behaviorHint = getBehaviorHint(creature)
 
   return (
     <div className="quark-panel quark-inspector animate-in slide-in-from-bottom-4 absolute inset-x-4 bottom-4 z-20 max-h-[40vh] overflow-y-auto rounded-lg p-4 duration-300">
@@ -37,6 +40,9 @@ export function CreatureInspector() {
           <p className="mt-1 font-mono text-xs text-[var(--quark-muted)]">
             DNA: {creature.dnaHash}
           </p>
+          <p className="mt-1 text-xs text-[var(--quark-accent)]/90">
+            {behaviorHint}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <BrainExpandButton />
@@ -55,6 +61,10 @@ export function CreatureInspector() {
           { label: "Age", value: creature.age },
           { label: "Energy", value: creature.energy.toFixed(1) },
           { label: "Fitness", value: creature.fitness.toFixed(1) },
+          { label: "Food Eaten", value: creature.foodEaten },
+          { label: "Distance", value: creature.distanceTraveled.toFixed(0) },
+          { label: "Vision", value: creature.visionRange.toFixed(0) },
+          { label: "Speed Cap", value: creature.maxSpeed.toFixed(1) },
           { label: "Size", value: creature.size.toFixed(1) },
         ].map((stat) => (
           <div

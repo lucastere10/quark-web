@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef } from "react"
 import { World } from "@/engine/world"
 import {
   type CreatureSnapshot,
+  type ObstacleRenderSnapshot,
   type ResourceRenderSnapshot,
   type SessionSummary,
   useSimulationStore,
@@ -21,6 +22,7 @@ function syncWorldToStore(world: World) {
   store.setStats(world.getStats())
   store.setCreatures(world.creatures.map((c) => c.toSnapshot()))
   store.setResources([...world.resources])
+  store.setObstacles([...world.obstacles])
 }
 
 function buildSessionSummary(
@@ -73,6 +75,7 @@ export function useSimulation() {
     (
       allCreatures: CreatureSnapshot[],
       allResources: ResourceRenderSnapshot[],
+      allObstacles: ObstacleRenderSnapshot[],
       stats: ReturnType<World["getStats"]>,
     ) => {
       cancelPreviewTransition()
@@ -81,6 +84,7 @@ export function useSimulation() {
       store.setStats(stats)
       store.setCreatures([])
       store.setResources([])
+      store.setObstacles(allObstacles)
       store.selectCreature(null)
 
       let creatureIndex = 0
@@ -157,9 +161,10 @@ export function useSimulation() {
 
     const allCreatures = world.creatures.map((c) => c.toSnapshot())
     const allResources = [...world.resources]
+    const allObstacles = [...world.obstacles]
     const stats = world.getStats()
 
-    startPreviewTransition(allCreatures, allResources, stats)
+    startPreviewTransition(allCreatures, allResources, allObstacles, stats)
   }, [previewSpawnToken, phase, config, startPreviewTransition])
 
   useEffect(() => {
@@ -190,6 +195,7 @@ export function useSimulation() {
 
         store.setCreatures(world.creatures.map((c) => c.toSnapshot()))
         store.setResources([...world.resources])
+        store.setObstacles([...world.obstacles])
 
         tickCounterRef.current++
         if (tickCounterRef.current % STATS_INTERVAL === 0) {

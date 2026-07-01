@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -123,6 +124,16 @@ function MiniChart({
     [statsHistory, axisMode, dataKey, generationLength],
   )
 
+  const generationMarkers = useMemo(() => {
+    if (axisMode !== "tick" || data.length === 0) return []
+    const maxX = Math.max(...data.map((d) => d.x))
+    const markers: number[] = []
+    for (let x = generationLength; x <= maxX; x += generationLength) {
+      markers.push(x)
+    }
+    return markers
+  }, [axisMode, data, generationLength])
+
   const xLabel = axisMode === "tick" ? "Tick" : "Generation"
 
   return (
@@ -150,6 +161,14 @@ function MiniChart({
                 axisLine={false}
               />
               <YAxis hide domain={["auto", "auto"]} />
+              {generationMarkers.map((x) => (
+                <ReferenceLine
+                  key={x}
+                  x={x}
+                  stroke="rgba(0,229,204,0.15)"
+                  strokeDasharray="2 4"
+                />
+              ))}
               <Tooltip
                 contentStyle={{
                   background: "#0a0a14",
@@ -183,7 +202,7 @@ function MiniChart({
 export function StatsPanel() {
   const stats = useSimulationStore((s) => s.stats)
   const generationLength = useSimulationStore((s) => s.config.generationLength)
-  const [chartAxisMode, setChartAxisMode] = useState<ChartAxisMode>("tick")
+  const [chartAxisMode, setChartAxisMode] = useState<ChartAxisMode>("generation")
 
   return (
     <aside className="quark-panel flex h-full flex-col">
@@ -226,6 +245,10 @@ export function StatsPanel() {
           <StatCard
             label="Avg Lifespan"
             value={stats.averageLifespan.toFixed(0)}
+          />
+          <StatCard
+            label="Avg Food Eaten"
+            value={stats.averageFoodEaten.toFixed(1)}
           />
           <StatCard label="Diversity" value={stats.speciesDiversity} />
           <StatCard label="Tick" value={stats.tick} />
