@@ -1,8 +1,17 @@
-import { Creature, resetCreatureIds, type ResourceSnapshot } from "./creature"
+import {
+  Creature,
+  resetCreatureIds,
+  type ObstacleSnapshot,
+  type ResourceSnapshot,
+  type TraitCaps,
+} from "./creature"
+import { type CreatureTraits } from "./genetics"
 import {
   evolveGeneration,
   spawnInitialPopulation,
 } from "./evolution"
+
+export type FoodDistribution = "uniform" | "cluster"
 
 export interface SimulationConfig {
   populationSize: number
@@ -17,6 +26,10 @@ export interface SimulationConfig {
   initialEnergy: number
   visionRange: number
   maxSpeed: number
+  noiseStrength: number
+  foodDistribution: FoodDistribution
+  obstacleCount: number
+  eliteCount: number
 }
 
 export interface WorldStats {
@@ -24,6 +37,7 @@ export interface WorldStats {
   population: number
   bestFitness: number
   averageFitness: number
+  averageFoodEaten: number
   survivalRate: number
   averageLifespan: number
   speciesDiversity: number
@@ -43,14 +57,25 @@ export const DEFAULT_CONFIG: SimulationConfig = {
   initialEnergy: 100,
   visionRange: 120,
   maxSpeed: 2.5,
+  noiseStrength: 0.15,
+  foodDistribution: "uniform",
+  obstacleCount: 0,
+  eliteCount: 2,
 }
 
 let nextResourceId = 1
+let nextObstacleId = 1
+
+interface ClusterCenter {
+  x: number
+  y: number
+}
 
 export class World {
   config: SimulationConfig
   creatures: Creature[] = []
   resources: ResourceSnapshot[] = []
+  obstacles: ObstacleSnapshot[] = []
   generation = 0
   tick = 0
   running = false
@@ -59,6 +84,7 @@ export class World {
   private justEvolved = false
   private lastWorldWidth = 0
   private lastWorldHeight = 0
+  private foodClusterCenters: ClusterCenter[] = []
 
   constructor(config: Partial<SimulationConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config }
@@ -68,19 +94,23 @@ export class World {
   reset(): void {
     resetCreatureIds()
     nextResourceId = 1
+    nextObstacleId = 1
     this.generation = 0
     this.tick = 0
     this.lastSurvivalRate = 0
     this.lastAverageLifespan = 0
     this.lastWorldWidth = this.config.worldWidth
     this.lastWorldHeight = this.config.worldHeight
+    this.foodClusterCenters = this.generateClusterCenters()
     this.creatures = spawnInitialPopulation(
       this.config.populationSize,
       this.config.initialEnergy,
       this.config.worldWidth,
       this.config.worldHeight,
+      this.traitDefaults(),
     )
     this.resources = this.generateResources()
+    this.obstacles = this.generateObstacles()
   }
 
   start(): void {
@@ -98,19 +128,36 @@ export class World {
   syncPreview(): void {
     this.syncPreviewBounds()
     this.syncPreviewResources()
+    this.syncPreviewObstacles()
     this.syncPreviewPopulation()
     this.refreshPreviewInputs()
+  }
+
+  private traitDefaults(): Partial<CreatureTraits> {
+    return {
+      visionRange: this.config.visionRange,
+      maxSpeed: this.config.maxSpeed,
+    }
+  }
+
+  private traitCaps(): TraitCaps {
+    return {
+      visionRange: this.config.visionRange,
+      maxSpeed: this.config.maxSpeed,
+      noiseStrength: this.config.noiseStrength,
+    }
   }
 
   private refreshPreviewInputs(): void {
     if (this.running) return
 
+    const caps = this.traitCaps()
     for (const creature of this.creatures) {
       creature.think(
         this.config.worldWidth,
         this.config.worldHeight,
         this.resources,
-        this.config.visionRange,
+        caps,
       )
     }
   }
@@ -137,6 +184,16 @@ export class World {
         resource.x *= scaleX
         resource.y *= scaleY
       }
+
+      for (const obstacle of this.obstacles) {
+        obstacle.x *= scaleX
+        obstacle.y *= scaleY
+      }
+
+      for (const center of this.foodClusterCenters) {
+        center.x *= scaleX
+        center.y *= scaleY
+      }
     }
 
     const margin = 4
@@ -155,6 +212,10 @@ export class World {
   }
 
   syncPreviewResources(): void {
+    if (this.config.foodDistribution === "cluster") {
+      this.foodClusterCenters = this.generateClusterCenters()
+    }
+
     let food = this.resources.filter((r) => r.type === "food")
     let poison = this.resources.filter((r) => r.type === "poison")
 
@@ -175,8 +236,18 @@ export class World {
     this.resources = [...food, ...poison]
   }
 
+  syncPreviewObstacles(): void {
+    while (this.obstacles.length > this.config.obstacleCount) {
+      this.obstacles.pop()
+    }
+    while (this.obstacles.length < this.config.obstacleCount) {
+      this.obstacles.push(this.createObstacle())
+    }
+  }
+
   syncPreviewPopulation(): void {
     const target = this.config.populationSize
+    const defaults = this.traitDefaults()
 
     while (this.creatures.length > target) {
       this.creatures.pop()
@@ -190,6 +261,7 @@ export class World {
           undefined,
           0,
           this.config.initialEnergy,
+          defaults,
         ),
       )
     }
@@ -224,6 +296,8 @@ export class World {
   }
 
   private updateCreatures(): void {
+    const caps = this.traitCaps()
+
     for (const creature of this.creatures) {
       if (!creature.alive) continue
 
@@ -231,11 +305,12 @@ export class World {
         this.config.worldWidth,
         this.config.worldHeight,
         this.resources,
-        this.config.visionRange,
+        caps,
       )
       creature.act(1)
       creature.tryEat(this.resources, 0.4)
       creature.tryPoison(this.resources)
+      creature.resolveObstacleCollisions(this.obstacles)
       creature.clampToWorld(this.config.worldWidth, this.config.worldHeight)
     }
 
@@ -266,14 +341,15 @@ export class World {
         mutationStrength: this.config.mutationStrength,
         initialEnergy: this.config.initialEnergy,
         selectionPressure: this.config.selectionPressure,
+        eliteCount: this.config.eliteCount,
       },
       this.config.worldWidth,
       this.config.worldHeight,
+      this.traitDefaults(),
     )
 
     this.generation++
     this.tick = 0
-    this.resources = this.generateResources()
   }
 
   private replenishResources(): void {
@@ -291,6 +367,10 @@ export class World {
   }
 
   private generateResources(): ResourceSnapshot[] {
+    if (this.config.foodDistribution === "cluster") {
+      this.foodClusterCenters = this.generateClusterCenters()
+    }
+
     const resources: ResourceSnapshot[] = []
     for (let i = 0; i < this.config.foodDensity; i++) {
       resources.push(this.createResource("food"))
@@ -301,21 +381,90 @@ export class World {
     return resources
   }
 
+  private generateObstacles(): ObstacleSnapshot[] {
+    const obstacles: ObstacleSnapshot[] = []
+    for (let i = 0; i < this.config.obstacleCount; i++) {
+      obstacles.push(this.createObstacle())
+    }
+    return obstacles
+  }
+
+  private generateClusterCenters(): ClusterCenter[] {
+    const count = 4 + Math.floor(Math.random() * 5)
+    const margin = 80
+    const centers: ClusterCenter[] = []
+
+    for (let i = 0; i < count; i++) {
+      centers.push({
+        x: margin + Math.random() * (this.config.worldWidth - margin * 2),
+        y: margin + Math.random() * (this.config.worldHeight - margin * 2),
+      })
+    }
+
+    return centers
+  }
+
   private createResource(type: "food" | "poison"): ResourceSnapshot {
+    const position = this.randomResourcePosition(type)
     return {
       id: nextResourceId++,
-      x: Math.random() * this.config.worldWidth,
-      y: Math.random() * this.config.worldHeight,
+      x: position.x,
+      y: position.y,
       type,
+    }
+  }
+
+  private randomResourcePosition(type: "food" | "poison"): { x: number; y: number } {
+    const margin = 4
+
+    if (
+      type === "food" &&
+      this.config.foodDistribution === "cluster" &&
+      this.foodClusterCenters.length > 0 &&
+      Math.random() < 0.7
+    ) {
+      const center =
+        this.foodClusterCenters[
+          Math.floor(Math.random() * this.foodClusterCenters.length)
+        ]!
+      const angle = Math.random() * Math.PI * 2
+      const radius = Math.random() * 80
+      const x = center.x + Math.cos(angle) * radius
+      const y = center.y + Math.sin(angle) * radius
+      return {
+        x: Math.max(margin, Math.min(this.config.worldWidth - margin, x)),
+        y: Math.max(margin, Math.min(this.config.worldHeight - margin, y)),
+      }
+    }
+
+    return {
+      x: margin + Math.random() * (this.config.worldWidth - margin * 2),
+      y: margin + Math.random() * (this.config.worldHeight - margin * 2),
+    }
+  }
+
+  private createObstacle(): ObstacleSnapshot {
+    const margin = 40
+    const radius = 12 + Math.random() * 18
+    return {
+      id: nextObstacleId++,
+      x: margin + Math.random() * (this.config.worldWidth - margin * 2),
+      y: margin + Math.random() * (this.config.worldHeight - margin * 2),
+      radius,
     }
   }
 
   getStats(): WorldStats {
     const fitnesses = this.creatures.map((c) => c.computeFitness())
+    const foodEaten = this.creatures.map((c) => c.foodEaten)
     const bestFitness = fitnesses.length > 0 ? Math.max(...fitnesses) : 0
     const averageFitness =
       fitnesses.length > 0
         ? fitnesses.reduce((a, b) => a + b, 0) / fitnesses.length
+        : 0
+    const averageFoodEaten =
+      foodEaten.length > 0
+        ? foodEaten.reduce((a, b) => a + b, 0) / foodEaten.length
         : 0
 
     const hashes = new Set(this.creatures.map((c) => c.dnaHash))
@@ -325,6 +474,7 @@ export class World {
       population: this.creatures.length,
       bestFitness,
       averageFitness,
+      averageFoodEaten,
       survivalRate: this.lastSurvivalRate,
       averageLifespan: this.lastAverageLifespan,
       speciesDiversity: hashes.size,

@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import {
   Sheet,
   SheetContent,
@@ -10,9 +11,59 @@ import {
 import { Brain } from "lucide-react"
 
 import { useSimulationStore } from "@/store/simulation-store"
+import { cn } from "@workspace/ui/lib/utils"
 
 import { IOBars } from "./io-bars"
 import { NeuralNetworkView } from "./neural-network-view"
+
+const MIN_PANEL_WIDTH = 520
+const DEFAULT_PANEL_WIDTH = 880
+const MAX_PANEL_WIDTH_RATIO = 0.95
+
+function usePanelResize(initialWidth: number) {
+  const [width, setWidth] = useState(initialWidth)
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null)
+
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      if (!resizeRef.current) return
+
+      const delta = resizeRef.current.startX - event.clientX
+      const maxWidth = window.innerWidth * MAX_PANEL_WIDTH_RATIO
+      setWidth(
+        Math.min(
+          maxWidth,
+          Math.max(MIN_PANEL_WIDTH, resizeRef.current.startWidth + delta),
+        ),
+      )
+    }
+
+    const endResize = () => {
+      resizeRef.current = null
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", endResize)
+    window.addEventListener("pointercancel", endResize)
+
+    return () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", endResize)
+      window.removeEventListener("pointercancel", endResize)
+    }
+  }, [])
+
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    resizeRef.current = { startX: event.clientX, startWidth: width }
+    document.body.style.cursor = "ew-resize"
+    document.body.style.userSelect = "none"
+  }
+
+  return { width, startResize }
+}
 
 function useCreature() {
   const selectedCreatureId = useSimulationStore((s) => s.selectedCreatureId)
@@ -24,6 +75,7 @@ export function BrainPanel() {
   const brainPanelOpen = useSimulationStore((s) => s.brainPanelOpen)
   const setBrainPanelOpen = useSimulationStore((s) => s.setBrainPanelOpen)
   const creature = useCreature()
+  const { width, startResize } = usePanelResize(DEFAULT_PANEL_WIDTH)
 
   if (!creature) return null
 
@@ -31,10 +83,22 @@ export function BrainPanel() {
     <Sheet open={brainPanelOpen} onOpenChange={setBrainPanelOpen}>
       <SheetContent
         side="right"
-        className="w-full border-[var(--quark-border)] bg-[#0a0a14] sm:max-w-xl"
+        className={cn(
+          "flex h-full max-w-none flex-col gap-0 border-[var(--quark-border)] bg-[#0a0a14] p-0",
+          "data-[side=right]:w-auto data-[side=right]:sm:max-w-none",
+        )}
+        style={{ width }}
       >
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2 font-display text-[var(--quark-accent)]">
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize brain panel"
+          className="absolute inset-y-0 left-0 z-20 w-2 cursor-ew-resize touch-none before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-[var(--quark-border)] before:transition-colors hover:before:bg-[var(--quark-accent)]/60 active:before:bg-[var(--quark-accent)]"
+          onPointerDown={startResize}
+        />
+
+        <SheetHeader className="shrink-0 space-y-1 border-b border-[var(--quark-border)] px-5 py-4 pr-14">
+          <SheetTitle className="flex items-center gap-2 font-display text-base text-[var(--quark-accent)]">
             <Brain className="size-4" />
             Brain — Creature #{creature.id}
           </SheetTitle>
@@ -43,12 +107,12 @@ export function BrainPanel() {
           </SheetDescription>
         </SheetHeader>
 
-        <div className="mt-4 space-y-4 overflow-y-auto pb-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
           <IOBars creature={creature} />
           <NeuralNetworkView
             creature={creature}
             mode="full"
-            height="50vh"
+            height="calc(100vh - 11rem)"
             interactive
           />
         </div>

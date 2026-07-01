@@ -120,10 +120,20 @@ The network is intentionally simple so users can understand how decisions are ma
 
 At the end of every generation:
 
-* Fitness is calculated
+* Fitness is calculated from food eaten, age, offspring, energy, and stagnation penalties
 * Weak individuals disappear
-* Strong individuals reproduce
-* Offspring inherit mutated neural networks
+* Top elites pass unchanged; the rest reproduce via tournament selection
+* Offspring inherit mutated neural networks and physical traits
+
+Fitness formula (higher is better):
+
+```
+foodEaten × 8 + age × 0.02 + offspringCount × 5 + energy × 0.05
+− stagnation penalty (when barely moving)
+− empty survival penalty (old age without eating)
+```
+
+Laboratory sliders (`visionRange`, `maxSpeed`) act as **ceilings** on evolved DNA traits. Each creature uses `min(DNA trait, slider cap)`.
 
 Mutations may affect:
 
@@ -131,10 +141,19 @@ Mutations may affect:
 * Vision distance
 * Speed
 * Body size
-* Color
-* Energy efficiency
+* Metabolism (movement cost and feeding efficiency)
 
 Over hundreds of generations, unexpected behaviors emerge naturally.
+
+---
+
+# Environment
+
+Resources replenish gradually between generations (no full map reset).
+
+* **Uniform** — food spread evenly across the world
+* **Cluster** — food grouped in patches (favors foraging and migration)
+* **Obstacles** — static circles with reflection physics (no scripted pathfinding)
 
 ---
 
@@ -150,21 +169,22 @@ Examples:
 * Population Size
 * Selection Pressure
 * Generation Length
+* Elite Count
 
 ## Environment
 
 * Food Density
 * Poison Density
+* Food Distribution (uniform / cluster)
+* Obstacle Count
 * World Size
-* Obstacles
-* Resource Distribution
 
 ## Creature
 
-* Vision Range
-* Maximum Speed
+* Vision Range (evolutionary ceiling)
+* Maximum Speed (evolutionary ceiling)
 * Initial Energy
-* Brain Size
+* Noise Strength
 
 Every change immediately influences the evolutionary process.
 

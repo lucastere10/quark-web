@@ -5,8 +5,10 @@ import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Separator } from "@workspace/ui/components/separator"
 import { Dices, Pause, Play, RotateCcw, Square } from "lucide-react"
 
+import { SLIDER_HINTS } from "@/lib/slider-hints"
 import { useSimulationStore } from "@/store/simulation-store"
 
+import { AboutDialog } from "./about-dialog"
 import { CollapsibleSection } from "./collapsible-section"
 import { ScenarioPicker } from "./scenario-picker"
 import { SimulationInfoDialog } from "./simulation-info-dialog"
@@ -44,7 +46,10 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
               Intelligence emerges from evolution
             </p>
           </div>
-          <SimulationInfoDialog />
+          <div className="flex shrink-0 items-center gap-1.5">
+            <AboutDialog />
+            <SimulationInfoDialog />
+          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -173,6 +178,16 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 disabled={controlsDisabled}
                 onChange={(v) => setConfig({ generationLength: v })}
               />
+              <SliderWithHint
+                hintKey="eliteCount"
+                label="Elite Count"
+                value={config.eliteCount}
+                min={0}
+                max={5}
+                step={1}
+                disabled={controlsDisabled}
+                onChange={(v) => setConfig({ eliteCount: v })}
+              />
             </div>
           </CollapsibleSection>
 
@@ -199,6 +214,41 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 step={5}
                 disabled={controlsDisabled}
                 onChange={(v) => setConfig({ poisonDensity: v })}
+              />
+              <div className="space-y-2">
+                <p className="text-xs text-[var(--quark-muted)]">
+                  Food Distribution
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["uniform", "cluster"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      disabled={controlsDisabled}
+                      onClick={() => setConfig({ foodDistribution: mode })}
+                      className={`rounded-md border px-2 py-1.5 text-xs capitalize transition-colors ${
+                        config.foodDistribution === mode
+                          ? "border-[var(--quark-accent)] bg-[var(--quark-accent)]/10 text-[var(--quark-accent)]"
+                          : "border-[var(--quark-border)] bg-black/20 text-foreground hover:border-[var(--quark-accent)]/40"
+                      } ${controlsDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--quark-muted)]/80">
+                  {SLIDER_HINTS.foodDistribution}
+                </p>
+              </div>
+              <SliderWithHint
+                hintKey="obstacleCount"
+                label="Obstacle Count"
+                value={config.obstacleCount}
+                min={0}
+                max={24}
+                step={2}
+                disabled={controlsDisabled}
+                onChange={(v) => setConfig({ obstacleCount: v })}
               />
               <SliderWithHint
                 hintKey="worldWidth"
@@ -257,6 +307,17 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 step={5}
                 disabled={controlsDisabled}
                 onChange={(v) => setConfig({ initialEnergy: v })}
+              />
+              <SliderWithHint
+                hintKey="noiseStrength"
+                label="Noise Strength"
+                value={config.noiseStrength}
+                min={0}
+                max={0.5}
+                step={0.05}
+                disabled={controlsDisabled}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => setConfig({ noiseStrength: v })}
               />
             </div>
           </CollapsibleSection>

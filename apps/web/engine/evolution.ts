@@ -1,4 +1,9 @@
-import { createRandomDNA, crossoverDNA, mutateDNA } from "./genetics"
+import {
+  createRandomDNA,
+  crossoverDNA,
+  mutateDNA,
+  type CreatureTraits,
+} from "./genetics"
 import { Creature } from "./creature"
 
 export function calculateFitness(creature: Creature): number {
@@ -15,7 +20,25 @@ export function tournamentSelect(
   for (let i = 0; i < tournamentSize; i++) {
     const candidate =
       creatures[Math.floor(Math.random() * creatures.length)]!
-    if (!best || candidate.fitness > best.fitness) {
+
+    if (!best) {
+      best = candidate
+      continue
+    }
+
+    if (candidate.fitness > best.fitness) {
+      best = candidate
+      continue
+    }
+
+    const fitnessClose =
+      Math.abs(candidate.fitness - best.fitness) <= best.fitness * 0.05
+
+    if (
+      fitnessClose &&
+      Math.random() < 0.2 &&
+      candidate.dnaHash !== best.dnaHash
+    ) {
       best = candidate
     }
   }
@@ -31,9 +54,11 @@ export function evolveGeneration(
     mutationStrength: number
     initialEnergy: number
     selectionPressure: number
+    eliteCount: number
   },
   worldWidth: number,
   worldHeight: number,
+  traitDefaults?: Partial<CreatureTraits>,
 ): Creature[] {
   const alive = creatures.filter((c) => c.alive)
   alive.forEach((c) => calculateFitness(c))
@@ -44,6 +69,7 @@ export function evolveGeneration(
       config.initialEnergy,
       worldWidth,
       worldHeight,
+      traitDefaults,
     )
   }
 
@@ -55,6 +81,20 @@ export function evolveGeneration(
   )
   const survivors = alive.slice(0, survivalCount)
   const nextGeneration: Creature[] = []
+
+  const eliteCount = Math.min(config.eliteCount, survivors.length)
+  for (let i = 0; i < eliteCount; i++) {
+    const elite = survivors[i]!
+    const clone = new Creature(
+      elite.x,
+      elite.y,
+      new Float32Array(elite.dna),
+      elite.generation + 1,
+      config.initialEnergy,
+      traitDefaults,
+    )
+    nextGeneration.push(clone)
+  }
 
   while (nextGeneration.length < config.populationSize) {
     const parentA = tournamentSelect(survivors, 3)
@@ -73,6 +113,7 @@ export function evolveGeneration(
       childDna,
       Math.max(parentA.generation, parentB.generation) + 1,
       config.initialEnergy,
+      traitDefaults,
     )
 
     parentA.offspringCount += 1
@@ -88,6 +129,7 @@ export function spawnInitialPopulation(
   initialEnergy: number,
   worldWidth: number,
   worldHeight: number,
+  traitDefaults?: Partial<CreatureTraits>,
 ): Creature[] {
   const creatures: Creature[] = []
   for (let i = 0; i < populationSize; i++) {
@@ -95,9 +137,10 @@ export function spawnInitialPopulation(
       new Creature(
         Math.random() * worldWidth,
         Math.random() * worldHeight,
-        createRandomDNA(),
+        createRandomDNA(traitDefaults),
         0,
         initialEnergy,
+        traitDefaults,
       ),
     )
   }

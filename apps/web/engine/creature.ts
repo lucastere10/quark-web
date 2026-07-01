@@ -17,6 +17,23 @@ export interface ResourceSnapshot {
   type: "food" | "poison"
 }
 
+export interface ObstacleSnapshot {
+  id: number
+  x: number
+  y: number
+  radius: number
+}
+
+export interface TraitCaps {
+  visionRange: number
+  maxSpeed: number
+  noiseStrength: number
+}
+
+const MOVE_THRESHOLD = 0.3
+const BASE_FOOD_ENERGY = 30
+const REFERENCE_METABOLISM = 0.02
+
 export class Creature {
   readonly id: number
   dna: Float32Array
@@ -33,6 +50,10 @@ export class Creature {
   fitness: number
   offspringCount: number
   foodEaten: number
+  distanceTraveled: number
+  ticksSinceMove: number
+  effectiveVision: number
+  effectiveMaxSpeed: number
   alive: boolean
 
   lastInputs: Float32Array
@@ -44,9 +65,10 @@ export class Creature {
     dna?: Float32Array,
     generation = 0,
     initialEnergy = 100,
+    traitDefaults?: Partial<CreatureTraits>,
   ) {
     this.id = nextCreatureId++
-    this.dna = dna ?? createRandomDNA()
+    this.dna = dna ?? createRandomDNA(traitDefaults)
     this.brain = new NeuralNetwork(extractWeights(this.dna))
     this.traits = extractTraits(this.dna)
 
@@ -60,6 +82,10 @@ export class Creature {
     this.fitness = 0
     this.offspringCount = 0
     this.foodEaten = 0
+    this.distanceTraveled = 0
+    this.ticksSinceMove = 0
+    this.effectiveVision = this.traits.visionRange
+    this.effectiveMaxSpeed = this.traits.maxSpeed
     this.alive = true
 
     this.lastInputs = new Float32Array(INPUT_COUNT)
@@ -74,10 +100,17 @@ export class Creature {
     worldWidth: number,
     worldHeight: number,
     resources: ResourceSnapshot[],
-    visionRange: number,
+    caps: TraitCaps,
   ): void {
-    const food = this.findNearestResource(resources, "food", visionRange)
-    const poison = this.findNearestResource(resources, "poison", visionRange)
+    this.effectiveVision = Math.min(this.traits.visionRange, caps.visionRange)
+    this.effectiveMaxSpeed = Math.min(this.traits.maxSpeed, caps.maxSpeed)
+
+    const food = this.findNearestResource(resources, "food", this.effectiveVision)
+    const poison = this.findNearestResource(
+      resources,
+      "poison",
+      this.effectiveVision,
+    )
 
     const wallDist = Math.min(
       this.x,
@@ -86,15 +119,17 @@ export class Creature {
       worldHeight - this.y,
     )
 
-    this.lastInputs[0] = food ? this.normalizeDistance(food.dist, visionRange) : 1
+    this.lastInputs[0] = food
+      ? this.normalizeDistance(food.dist, this.effectiveVision)
+      : 1
     this.lastInputs[1] = food ? this.normalizeAngle(food.angle) : 0
     this.lastInputs[2] = poison
-      ? this.normalizeDistance(poison.dist, visionRange)
+      ? this.normalizeDistance(poison.dist, this.effectiveVision)
       : 1
     this.lastInputs[3] = poison ? this.normalizeAngle(poison.angle) : 0
-    this.lastInputs[4] = 1 - this.normalizeDistance(wallDist, visionRange)
+    this.lastInputs[4] = 1 - this.normalizeDistance(wallDist, this.effectiveVision)
     this.lastInputs[5] = this.energy / 100
-    this.lastInputs[6] = Math.random() * 2 - 1
+    this.lastInputs[6] = caps.noiseStrength * (Math.random() * 2 - 1)
 
     const outputs = this.brain.forward(this.lastInputs)
     for (let i = 0; i < OUTPUT_COUNT; i++) {
@@ -104,6 +139,9 @@ export class Creature {
 
   act(deltaMetabolism: number): void {
     const [turnLeft, turnRight, accelerate, brake, , rest] = this.lastOutputs
+
+    const prevX = this.x
+    const prevY = this.y
 
     const turnForce = (turnRight! - turnLeft!) * 0.15
     this.angle += turnForce
@@ -115,13 +153,28 @@ export class Creature {
       this.speed += accel
     }
 
-    this.speed = Math.max(0, Math.min(this.speed, this.traits.maxSpeed))
+    this.speed = Math.max(
+      0,
+      Math.min(this.speed, this.effectiveMaxSpeed),
+    )
 
     this.x += Math.cos(this.angle) * this.speed
     this.y += Math.sin(this.angle) * this.speed
 
+    const displacement = distance(prevX, prevY, this.x, this.y)
+    this.distanceTraveled += displacement
+
+    if (displacement < MOVE_THRESHOLD) {
+      this.ticksSinceMove += 1
+    } else {
+      this.ticksSinceMove = 0
+    }
+
+    const speedRatio =
+      this.effectiveMaxSpeed > 0 ? this.speed / this.effectiveMaxSpeed : 0
     const metabolism = this.traits.metabolism * deltaMetabolism
-    const movementCost = this.speed * 0.01 * deltaMetabolism
+    const movementCost =
+      this.speed * 0.01 * deltaMetabolism * (0.5 + speedRatio * 0.5)
     const restBonus = rest! > 0.6 ? -0.005 * deltaMetabolism : 0
 
     this.energy -= metabolism + movementCost + restBonus
@@ -142,7 +195,10 @@ export class Creature {
 
       const dist = distance(this.x, this.y, resource.x, resource.y)
       if (dist < this.traits.size + 4) {
-        this.energy = Math.min(100, this.energy + 30)
+        const foodEnergy =
+          BASE_FOOD_ENERGY *
+          (REFERENCE_METABOLISM / this.traits.metabolism)
+        this.energy = Math.min(100, this.energy + foodEnergy)
         this.foodEaten += 1
         resources.splice(i, 1)
         return true
@@ -163,6 +219,26 @@ export class Creature {
       }
     }
     return false
+  }
+
+  resolveObstacleCollisions(obstacles: ObstacleSnapshot[]): void {
+    for (const obstacle of obstacles) {
+      const dist = distance(this.x, this.y, obstacle.x, obstacle.y)
+      const minDist = this.traits.size + obstacle.radius
+      if (dist >= minDist || dist === 0) continue
+
+      const nx = (this.x - obstacle.x) / dist
+      const ny = (this.y - obstacle.y) / dist
+      this.x = obstacle.x + nx * minDist
+      this.y = obstacle.y + ny * minDist
+
+      const vx = Math.cos(this.angle)
+      const vy = Math.sin(this.angle)
+      const dot = vx * nx + vy * ny
+      const rx = vx - 2 * dot * nx
+      const ry = vy - 2 * dot * ny
+      this.angle = Math.atan2(ry, rx)
+    }
   }
 
   clampToWorld(width: number, height: number): void {
@@ -186,12 +262,21 @@ export class Creature {
   }
 
   computeFitness(): number {
-    return (
-      this.foodEaten * 2 +
-      this.age * 0.1 +
+    let score =
+      this.foodEaten * 8 +
+      this.age * 0.02 +
       this.offspringCount * 5 +
       this.energy * 0.05
-    )
+
+    if (this.ticksSinceMove > 40) {
+      score -= (this.ticksSinceMove - 40) * 0.05
+    }
+
+    if (this.foodEaten === 0 && this.age > 150) {
+      score -= 10 + (this.age - 150) * 0.05
+    }
+
+    return score
   }
 
   toSnapshot() {
@@ -207,6 +292,12 @@ export class Creature {
       size: this.traits.size,
       dnaHash: this.dnaHash,
       alive: this.alive,
+      foodEaten: this.foodEaten,
+      distanceTraveled: this.distanceTraveled,
+      ticksSinceMove: this.ticksSinceMove,
+      visionRange: this.effectiveVision,
+      maxSpeed: this.effectiveMaxSpeed,
+      metabolism: this.traits.metabolism,
       inputs: Array.from(this.lastInputs),
       outputs: Array.from(this.lastOutputs),
       hidden: Array.from(this.brain.hidden),

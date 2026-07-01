@@ -21,6 +21,12 @@ export interface CreatureSnapshot {
   size: number
   dnaHash: string
   alive: boolean
+  foodEaten: number
+  distanceTraveled: number
+  ticksSinceMove: number
+  visionRange: number
+  maxSpeed: number
+  metabolism: number
   inputs: number[]
   outputs: number[]
   hidden: number[]
@@ -32,6 +38,13 @@ export interface ResourceRenderSnapshot {
   x: number
   y: number
   type: "food" | "poison"
+}
+
+export interface ObstacleRenderSnapshot {
+  id: number
+  x: number
+  y: number
+  radius: number
 }
 
 export interface StatsHistoryPoint extends WorldStats {
@@ -53,6 +66,7 @@ interface SimulationStore {
   stats: WorldStats
   creatures: CreatureSnapshot[]
   resources: ResourceRenderSnapshot[]
+  obstacles: ObstacleRenderSnapshot[]
   statsHistory: StatsHistoryPoint[]
   selectedCreatureId: number | null
   selectedScenarioId: string | null
@@ -68,6 +82,7 @@ interface SimulationStore {
   setStats: (stats: WorldStats) => void
   setCreatures: (creatures: CreatureSnapshot[]) => void
   setResources: (resources: ResourceRenderSnapshot[]) => void
+  setObstacles: (obstacles: ObstacleRenderSnapshot[]) => void
   pushStatsHistory: (stats: WorldStats) => void
   selectCreature: (id: number | null) => void
   setRunning: (running: boolean) => void
@@ -89,6 +104,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     population: 0,
     bestFitness: 0,
     averageFitness: 0,
+    averageFoodEaten: 0,
     survivalRate: 0,
     averageLifespan: 0,
     speciesDiversity: 0,
@@ -96,6 +112,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
   },
   creatures: [],
   resources: [],
+  obstacles: [],
   statsHistory: [],
   selectedCreatureId: null,
   selectedScenarioId: "laboratory",
@@ -115,6 +132,8 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
   setCreatures: (creatures) => set({ creatures }),
 
   setResources: (resources) => set({ resources }),
+
+  setObstacles: (obstacles) => set({ obstacles }),
 
   pushStatsHistory: (stats) =>
     set((state) => {
