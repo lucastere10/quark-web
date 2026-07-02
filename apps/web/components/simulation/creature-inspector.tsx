@@ -26,7 +26,7 @@ export function CreatureInspector() {
     <div className="quark-panel quark-inspector animate-in slide-in-from-bottom-4 absolute inset-x-4 bottom-4 z-20 max-h-[40vh] overflow-y-auto rounded-lg p-4 duration-300">
       <div className="mb-4 flex items-start justify-between gap-2">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-display text-sm font-medium text-[var(--quark-accent)]">
               Creature #{creature.id}
             </h3>
@@ -36,6 +36,14 @@ export function CreatureInspector() {
             >
               Gen {creature.generation}
             </Badge>
+            {creature.isResting && (
+              <Badge
+                variant="outline"
+                className="border-[#ff9900]/50 font-mono text-[10px] text-[#ff9900]"
+              >
+                Resting
+              </Badge>
+            )}
           </div>
           <p className="mt-1 font-mono text-xs text-[var(--quark-muted)]">
             DNA: {creature.dnaHash}
@@ -59,11 +67,18 @@ export function CreatureInspector() {
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { label: "Age", value: creature.age },
-          { label: "Energy", value: creature.energy.toFixed(1) },
+          {
+            label: "Energy",
+            value: `${creature.energy.toFixed(1)} / ${creature.maxEnergy.toFixed(0)}`,
+          },
           { label: "Fitness", value: creature.fitness.toFixed(1) },
           { label: "Food Eaten", value: creature.foodEaten },
           { label: "Distance", value: creature.distanceTraveled.toFixed(0) },
           { label: "Vision", value: creature.visionRange.toFixed(0) },
+          {
+            label: "Vision Angle",
+            value: `${creature.visionHalfAngle.toFixed(0)}°`,
+          },
           { label: "Speed Cap", value: creature.maxSpeed.toFixed(1) },
           { label: "Size", value: creature.size.toFixed(1) },
         ].map((stat) => (
