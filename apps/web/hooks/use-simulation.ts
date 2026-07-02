@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef } from "react"
 
 import { World } from "@/engine/world"
 import {
+  buildGenerationSeries,
+  getLastGenerationPoint,
+  peakTraitValue,
+} from "@/lib/chart-data"
+import {
   type CreatureSnapshot,
   type ObstacleRenderSnapshot,
   type ResourceRenderSnapshot,
@@ -38,6 +43,9 @@ function buildSessionSummary(
     finalStats.population,
   )
 
+  const generationSeries = buildGenerationSeries(statsHistory)
+  const lastPoint = getLastGenerationPoint(statsHistory)
+
   return {
     generationsReached: finalStats.generation,
     peakFitness,
@@ -45,6 +53,16 @@ function buildSessionSummary(
     averageLifespan: finalStats.averageLifespan,
     survivalRate: finalStats.survivalRate,
     peakPopulation,
+    finalAverageSize: lastPoint?.averageSize ?? finalStats.averageSize,
+    finalAverageVision:
+      lastPoint?.averageVisionRange ?? finalStats.averageVisionRange,
+    finalAverageVisionAngle:
+      lastPoint?.averageVisionHalfAngle ?? finalStats.averageVisionHalfAngle,
+    finalAverageSpeed: lastPoint?.averageMaxSpeed ?? finalStats.averageMaxSpeed,
+    finalAverageMetabolism:
+      lastPoint?.averageMetabolism ?? finalStats.averageMetabolism,
+    peakAverageSize: peakTraitValue(generationSeries, "averageSize"),
+    peakAverageVision: peakTraitValue(generationSeries, "averageVisionRange"),
     statsHistory: [...statsHistory],
   }
 }
@@ -191,6 +209,12 @@ export function useSimulation() {
         while (tickAccumulatorRef.current >= 1) {
           world.step()
           tickAccumulatorRef.current -= 1
+
+          if (world.evolutionJustOccurred) {
+            const stats = world.getStats()
+            store.setStats(stats)
+            store.pushStatsHistory(stats)
+          }
         }
 
         store.setCreatures(world.creatures.map((c) => c.toSnapshot()))
@@ -230,6 +254,7 @@ export function useSimulation() {
     tickCounterRef.current = 0
     tickAccumulatorRef.current = 0
     syncWorldToStore(worldRef.current)
+    store.pushStatsHistory(worldRef.current.getStats())
   }
 
   const quitSimulation = () => {
@@ -239,6 +264,8 @@ export function useSimulation() {
 
     world.pause()
     const finalStats = world.getStats()
+    store.setStats(finalStats)
+    store.pushStatsHistory(finalStats)
     const summary = buildSessionSummary(store.statsHistory, finalStats)
     store.setSessionSummary(summary)
     store.setRunning(false)

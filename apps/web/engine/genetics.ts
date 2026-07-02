@@ -1,6 +1,6 @@
 import { NeuralNetwork, WEIGHT_COUNT } from "./neural-network"
 
-export const TRAIT_COUNT = 4
+export const TRAIT_COUNT = 5
 export const DNA_LENGTH = WEIGHT_COUNT + TRAIT_COUNT
 
 export interface CreatureTraits {
@@ -8,13 +8,15 @@ export interface CreatureTraits {
   maxSpeed: number
   size: number
   metabolism: number
+  visionHalfAngle: number
 }
 
 export const DEFAULT_TRAITS: CreatureTraits = {
   visionRange: 120,
   maxSpeed: 2.5,
-  size: 6,
+  size: 7,
   metabolism: 0.02,
+  visionHalfAngle: 40,
 }
 
 function gaussianRandom(): number {
@@ -36,18 +38,24 @@ export function createRandomDNA(
   dna[WEIGHT_COUNT + 1] = traits.maxSpeed
   dna[WEIGHT_COUNT + 2] = traits.size
   dna[WEIGHT_COUNT + 3] = traits.metabolism
+  dna[WEIGHT_COUNT + 4] = traits.visionHalfAngle
   return dna
 }
 
 export function extractTraits(dna: Float32Array): CreatureTraits {
   return {
-    visionRange: clamp(dna[WEIGHT_COUNT] ?? DEFAULT_TRAITS.visionRange, 40, 250),
+    visionRange: clamp(dna[WEIGHT_COUNT] ?? DEFAULT_TRAITS.visionRange, 50, 280),
     maxSpeed: clamp(dna[WEIGHT_COUNT + 1] ?? DEFAULT_TRAITS.maxSpeed, 0.5, 5),
-    size: clamp(dna[WEIGHT_COUNT + 2] ?? DEFAULT_TRAITS.size, 3, 12),
+    size: clamp(dna[WEIGHT_COUNT + 2] ?? DEFAULT_TRAITS.size, 2, 16),
     metabolism: clamp(
       dna[WEIGHT_COUNT + 3] ?? DEFAULT_TRAITS.metabolism,
       0.005,
       0.08,
+    ),
+    visionHalfAngle: clamp(
+      dna[WEIGHT_COUNT + 4] ?? DEFAULT_TRAITS.visionHalfAngle,
+      20,
+      60,
     ),
   }
 }

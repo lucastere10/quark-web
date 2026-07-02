@@ -7,6 +7,7 @@ import { Dices, Pause, Play, RotateCcw, Square } from "lucide-react"
 
 import { SLIDER_HINTS } from "@/lib/slider-hints"
 import { useSimulationStore } from "@/store/simulation-store"
+import packageJson from "../../package.json"
 
 import { AboutDialog } from "./about-dialog"
 import { CollapsibleSection } from "./collapsible-section"
@@ -47,6 +48,9 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <span className="text-[10px] font-mono tracking-wide text-[var(--quark-muted)]">
+              v{packageJson.version}
+            </span>
             <AboutDialog />
             <SimulationInfoDialog />
           </div>

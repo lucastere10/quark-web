@@ -15,6 +15,7 @@ export interface CreatureSnapshot {
   y: number
   angle: number
   energy: number
+  maxEnergy: number
   age: number
   generation: number
   fitness: number
@@ -25,8 +26,10 @@ export interface CreatureSnapshot {
   distanceTraveled: number
   ticksSinceMove: number
   visionRange: number
+  visionHalfAngle: number
   maxSpeed: number
   metabolism: number
+  isResting: boolean
   inputs: number[]
   outputs: number[]
   hidden: number[]
@@ -58,6 +61,13 @@ export interface SessionSummary {
   averageLifespan: number
   survivalRate: number
   peakPopulation: number
+  finalAverageSize: number
+  finalAverageVision: number
+  finalAverageVisionAngle: number
+  finalAverageSpeed: number
+  finalAverageMetabolism: number
+  peakAverageSize: number
+  peakAverageVision: number
   statsHistory: StatsHistoryPoint[]
 }
 
@@ -109,6 +119,11 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     averageLifespan: 0,
     speciesDiversity: 0,
     tick: 0,
+    averageSize: 0,
+    averageVisionRange: 0,
+    averageVisionHalfAngle: 0,
+    averageMaxSpeed: 0,
+    averageMetabolism: 0,
   },
   creatures: [],
   resources: [],
@@ -142,7 +157,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
         timestamp: Date.now(),
       }
       const history = [...state.statsHistory, point]
-      if (history.length > 120) {
+      if (history.length > 240) {
         history.shift()
       }
       return { statsHistory: history }
