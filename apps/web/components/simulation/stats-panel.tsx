@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -12,11 +13,17 @@ import {
   YAxis,
 } from "recharts"
 
-import type { StatsHistoryPoint } from "@/store/simulation-store"
+import {
+  type ChartAxisMode,
+  buildChartSeries,
+  type TraitStatKey,
+} from "@/lib/chart-data"
 import { useSimulationStore } from "@/store/simulation-store"
 import { cn } from "@workspace/ui/lib/utils"
 
-export type ChartAxisMode = "tick" | "generation"
+import { TraitEvolutionChart } from "./trait-evolution-chart"
+
+export type { ChartAxisMode }
 
 function StatCard({
   label,
@@ -39,36 +46,6 @@ function StatCard({
       </p>
     </div>
   )
-}
-
-function buildChartData(
-  history: StatsHistoryPoint[],
-  mode: ChartAxisMode,
-  dataKey: "population" | "averageFitness" | "speciesDiversity",
-  generationLength: number,
-) {
-  if (history.length === 0) return []
-
-  if (mode === "generation") {
-    const byGeneration = new Map<number, StatsHistoryPoint>()
-    for (const point of history) {
-      byGeneration.set(point.generation, point)
-    }
-
-    return Array.from(byGeneration.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([generation, point]) => ({
-        x: generation,
-        label: `Gen ${generation}`,
-        value: point[dataKey],
-      }))
-  }
-
-  return history.map((point) => ({
-    x: point.generation * generationLength + point.tick,
-    label: `Gen ${point.generation} · Tick ${point.tick}`,
-    value: point[dataKey],
-  }))
 }
 
 function AxisToggle({
@@ -119,10 +96,14 @@ function MiniChart({
 }) {
   const statsHistory = useSimulationStore((s) => s.statsHistory)
 
-  const data = useMemo(
-    () => buildChartData(statsHistory, axisMode, dataKey, generationLength),
-    [statsHistory, axisMode, dataKey, generationLength],
-  )
+  const data = useMemo(() => {
+    const series = buildChartSeries(statsHistory, axisMode, generationLength)
+    return series.map((point) => ({
+      x: axisMode === "generation" ? point.generation : (point as { x: number }).x,
+      label: point.label,
+      value: point[dataKey],
+    }))
+  }, [statsHistory, axisMode, dataKey, generationLength])
 
   const generationMarkers = useMemo(() => {
     if (axisMode !== "tick" || data.length === 0) return []
@@ -199,10 +180,36 @@ function MiniChart({
   )
 }
 
-export function StatsPanel() {
+interface StatsPanelProps {
+  chartAxisMode?: ChartAxisMode
+  onChartAxisModeChange?: (mode: ChartAxisMode) => void
+  showTraitExpand?: boolean
+  onExpandTraitChart?: () => void
+  selectedTrait?: TraitStatKey | null
+  onSelectedTraitChange?: (trait: TraitStatKey | null) => void
+}
+
+export function StatsPanel({
+  chartAxisMode: controlledAxisMode,
+  onChartAxisModeChange,
+  showTraitExpand = false,
+  onExpandTraitChart,
+  selectedTrait,
+  onSelectedTraitChange,
+}: StatsPanelProps = {}) {
   const stats = useSimulationStore((s) => s.stats)
+  const statsHistory = useSimulationStore((s) => s.statsHistory)
   const generationLength = useSimulationStore((s) => s.config.generationLength)
-  const [chartAxisMode, setChartAxisMode] = useState<ChartAxisMode>("generation")
+  const [internalAxisMode, setInternalAxisMode] =
+    useState<ChartAxisMode>("generation")
+
+  const chartAxisMode = controlledAxisMode ?? internalAxisMode
+  const setChartAxisMode = onChartAxisModeChange ?? setInternalAxisMode
+
+  const traitChartData = useMemo(
+    () => buildChartSeries(statsHistory, chartAxisMode, generationLength),
+    [statsHistory, chartAxisMode, generationLength],
+  )
 
   return (
     <aside className="quark-panel flex h-full flex-col">
@@ -251,6 +258,11 @@ export function StatsPanel() {
             value={stats.averageFoodEaten.toFixed(1)}
           />
           <StatCard label="Diversity" value={stats.speciesDiversity} />
+          <StatCard label="Avg Size" value={stats.averageSize.toFixed(1)} />
+          <StatCard
+            label="Avg Vision"
+            value={stats.averageVisionRange.toFixed(0)}
+          />
           <StatCard label="Tick" value={stats.tick} />
         </div>
 
@@ -274,6 +286,14 @@ export function StatsPanel() {
           color="#9933ff"
           axisMode={chartAxisMode}
           generationLength={generationLength}
+        />
+        <TraitEvolutionChart
+          data={traitChartData}
+          axisMode={chartAxisMode}
+          showExpand={showTraitExpand}
+          onExpand={onExpandTraitChart}
+          selectedTrait={selectedTrait}
+          onSelectedTraitChange={onSelectedTraitChange}
         />
       </div>
     </aside>

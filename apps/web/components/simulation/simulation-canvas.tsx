@@ -10,8 +10,9 @@ const COLORS = {
   food: 0x22ff77,
   poison: 0xff2244,
   obstacle: 0x4a4a5a,
-  creatureLow: 0x00e5cc,
-  creatureHigh: 0xff9900,
+  energyCyan: 0x00e5cc,
+  energyAmber: 0xff9900,
+  energyRed: 0xff2244,
   selected: 0xffffff,
   elite: 0xffcc00,
   vision: 0x00e5cc,
@@ -20,6 +21,7 @@ const COLORS = {
 
 const FADE_DURATION_MS = 450
 const TRAIL_LENGTH = 20
+const VISION_CONE_OFFSETS = [-Math.PI / 3, 0, Math.PI / 3] as const
 
 interface WorldTransform {
   scale: number
@@ -31,25 +33,61 @@ function clampChannel(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)))
 }
 
-function fitnessColor(fitness: number, maxFitness: number): number {
-  const safeMax = Math.max(maxFitness, 1)
-  const t = Math.max(0, Math.min(1, Math.max(0, fitness) / safeMax))
+function lerpColor(from: number, to: number, t: number): number {
+  const safeT = Math.max(0, Math.min(1, t))
   const r = clampChannel(
-    ((COLORS.creatureLow >> 16) & 0xff) * (1 - t) +
-      ((COLORS.creatureHigh >> 16) & 0xff) * t,
+    ((from >> 16) & 0xff) * (1 - safeT) + ((to >> 16) & 0xff) * safeT,
   )
   const g = clampChannel(
-    ((COLORS.creatureLow >> 8) & 0xff) * (1 - t) +
-      ((COLORS.creatureHigh >> 8) & 0xff) * t,
+    ((from >> 8) & 0xff) * (1 - safeT) + ((to >> 8) & 0xff) * safeT,
   )
-  const b = clampChannel(
-    (COLORS.creatureLow & 0xff) * (1 - t) + (COLORS.creatureHigh & 0xff) * t,
-  )
+  const b = clampChannel((from & 0xff) * (1 - safeT) + (to & 0xff) * safeT)
   return (r << 16) | (g << 8) | b
+}
+
+function energyColor(energy: number, maxEnergy: number): number {
+  const ratio =
+    maxEnergy > 0 ? Math.max(0, Math.min(1, energy / maxEnergy)) : 0
+
+  if (ratio >= 0.5) {
+    return lerpColor(
+      COLORS.energyAmber,
+      COLORS.energyCyan,
+      (ratio - 0.5) * 2,
+    )
+  }
+
+  return lerpColor(COLORS.energyRed, COLORS.energyAmber, ratio * 2)
 }
 
 function fadeAlpha(spawnTime: number, now: number): number {
   return Math.min(1, (now - spawnTime) / FADE_DURATION_MS)
+}
+
+function drawVisionWedge(
+  gfx: Graphics,
+  x: number,
+  y: number,
+  heading: number,
+  range: number,
+  centerOffset: number,
+  halfAngleRad: number,
+  fillAlpha: number,
+  strokeAlpha: number,
+): void {
+  const start = heading + centerOffset - halfAngleRad
+  const end = heading + centerOffset + halfAngleRad
+
+  gfx.moveTo(x, y)
+  gfx.arc(x, y, range, start, end)
+  gfx.lineTo(x, y)
+  gfx.closePath()
+  gfx.fill({ color: COLORS.vision, alpha: fillAlpha })
+  gfx.moveTo(x, y)
+  gfx.arc(x, y, range, start, end)
+  gfx.lineTo(x, y)
+  gfx.closePath()
+  gfx.stroke({ color: COLORS.vision, width: 1, alpha: strokeAlpha })
 }
 
 export function SimulationCanvas() {
@@ -112,7 +150,6 @@ export function SimulationCanvas() {
 
     const { creatures, resources, obstacles, selectedCreatureId } =
       renderStateRef.current
-    const maxFitness = Math.max(...creatures.map((c) => c.fitness), 1)
     const activeCreatureIds = new Set(creatures.map((c) => c.id))
     const activeResourceIds = new Set(resources.map((r) => r.id))
     const activeObstacleIds = new Set(obstacles.map((o) => o.id))
@@ -225,13 +262,14 @@ export function SimulationCanvas() {
         })
       }
 
-      const entityAlpha = fadeAlpha(
+      const spawnAlpha = fadeAlpha(
         spawnTimesRef.current.get(creature.id) ?? now,
         now,
       )
-      const color = fitnessColor(creature.fitness, maxFitness)
+      const color = energyColor(creature.energy, creature.maxEnergy)
       const isSelected = creature.id === selectedCreatureId
       const isElite = topEliteIds.has(creature.id)
+      const bodyAlpha = (creature.isResting ? 0.55 : 0.85) * spawnAlpha
 
       if (isSelected) {
         const trail = trailRef.current.get(creature.id) ?? []
@@ -251,17 +289,38 @@ export function SimulationCanvas() {
             gfx.lineTo(trail[i]!.x, trail[i]!.y)
           }
           gfx.stroke({
-            color: COLORS.trail,
+            color,
             width: 1,
-            alpha: 0.35 * entityAlpha,
+            alpha: 0.35 * spawnAlpha,
           })
         }
 
-        gfx.circle(creature.x, creature.y, creature.visionRange)
+        const halfAngleRad = (creature.visionHalfAngle * Math.PI) / 180
+        for (let i = 0; i < VISION_CONE_OFFSETS.length; i++) {
+          const sectorSignal = creature.inputs[i] ?? 0
+          const fillAlpha = (0.04 + sectorSignal * 0.08) * spawnAlpha
+          const strokeAlpha = (0.15 + sectorSignal * 0.2) * spawnAlpha
+          drawVisionWedge(
+            gfx,
+            creature.x,
+            creature.y,
+            creature.angle,
+            creature.visionRange,
+            VISION_CONE_OFFSETS[i]!,
+            halfAngleRad,
+            fillAlpha,
+            strokeAlpha,
+          )
+        }
+      }
+
+      if (creature.isResting) {
+        const pulse = 0.35 + Math.sin(now / 300) * 0.15
+        gfx.circle(creature.x, creature.y, creature.size + 8)
         gfx.stroke({
-          color: COLORS.vision,
-          width: 1,
-          alpha: 0.25 * entityAlpha,
+          color: COLORS.energyAmber,
+          width: 1.5,
+          alpha: pulse * spawnAlpha,
         })
       }
 
@@ -270,19 +329,19 @@ export function SimulationCanvas() {
         gfx.stroke({
           color: COLORS.elite,
           width: 1.5,
-          alpha: 0.75 * entityAlpha,
+          alpha: 0.75 * spawnAlpha,
         })
       }
 
       gfx.circle(creature.x, creature.y, creature.size)
-      gfx.fill({ color, alpha: 0.85 * entityAlpha })
+      gfx.fill({ color, alpha: bodyAlpha })
 
       if (isSelected) {
         gfx.circle(creature.x, creature.y, creature.size + 4)
         gfx.stroke({
           color: COLORS.selected,
           width: 1.5,
-          alpha: 0.9 * entityAlpha,
+          alpha: 0.9 * spawnAlpha,
         })
       }
 
@@ -290,7 +349,7 @@ export function SimulationCanvas() {
       const tipY = creature.y + Math.sin(creature.angle) * (creature.size + 4)
       gfx.moveTo(creature.x, creature.y)
       gfx.lineTo(tipX, tipY)
-      gfx.stroke({ color, width: 1.5, alpha: 0.9 * entityAlpha })
+      gfx.stroke({ color, width: 1.5, alpha: bodyAlpha })
     }
   }
 

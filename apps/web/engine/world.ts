@@ -42,14 +42,19 @@ export interface WorldStats {
   averageLifespan: number
   speciesDiversity: number
   tick: number
+  averageSize: number
+  averageVisionRange: number
+  averageVisionHalfAngle: number
+  averageMaxSpeed: number
+  averageMetabolism: number
 }
 
 export const DEFAULT_CONFIG: SimulationConfig = {
   populationSize: 80,
-  mutationRate: 0.08,
+  mutationRate: 0.05,
   mutationStrength: 0.3,
-  selectionPressure: 0.5,
-  generationLength: 600,
+  selectionPressure: 0.7,
+  generationLength: 900,
   foodDensity: 120,
   poisonDensity: 25,
   worldWidth: 1200,
@@ -157,6 +162,7 @@ export class World {
         this.config.worldWidth,
         this.config.worldHeight,
         this.resources,
+        this.obstacles,
         caps,
       )
     }
@@ -273,6 +279,10 @@ export class World {
     this.syncPreview()
   }
 
+  get evolutionJustOccurred(): boolean {
+    return this.justEvolved
+  }
+
   step(): WorldStats {
     if (!this.running) {
       return this.getStats()
@@ -301,14 +311,23 @@ export class World {
     for (const creature of this.creatures) {
       if (!creature.alive) continue
 
+      creature.syncRestingState()
+
+      if (creature.isResting) {
+        creature.processResting(1)
+        creature.tryPoison(this.resources)
+        continue
+      }
+
       creature.think(
         this.config.worldWidth,
         this.config.worldHeight,
         this.resources,
+        this.obstacles,
         caps,
       )
       creature.act(1)
-      creature.tryEat(this.resources, 0.4)
+      creature.tryEat(this.resources)
       creature.tryPoison(this.resources)
       creature.resolveObstacleCollisions(this.obstacles)
       creature.clampToWorld(this.config.worldWidth, this.config.worldHeight)
@@ -467,6 +486,9 @@ export class World {
         ? foodEaten.reduce((a, b) => a + b, 0) / foodEaten.length
         : 0
 
+    const avg = (values: number[]) =>
+      values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0
+
     const hashes = new Set(this.creatures.map((c) => c.dnaHash))
 
     return {
@@ -479,6 +501,13 @@ export class World {
       averageLifespan: this.lastAverageLifespan,
       speciesDiversity: hashes.size,
       tick: this.tick,
+      averageSize: avg(this.creatures.map((c) => c.traits.size)),
+      averageVisionRange: avg(this.creatures.map((c) => c.traits.visionRange)),
+      averageVisionHalfAngle: avg(
+        this.creatures.map((c) => c.traits.visionHalfAngle),
+      ),
+      averageMaxSpeed: avg(this.creatures.map((c) => c.traits.maxSpeed)),
+      averageMetabolism: avg(this.creatures.map((c) => c.traits.metabolism)),
     }
   }
 }

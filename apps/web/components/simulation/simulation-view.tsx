@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 import { useSimulation } from "@/hooks/use-simulation"
+import type { ChartAxisMode, TraitStatKey } from "@/lib/chart-data"
 import { useSimulationStore } from "@/store/simulation-store"
 
 import { BrainPanel } from "./brain-panel"
@@ -11,12 +12,17 @@ import { CreatureInspector } from "./creature-inspector"
 import { SimulationCanvas } from "./simulation-canvas"
 import { SimulationSummaryDialog } from "./simulation-summary-dialog"
 import { StatsPanel } from "./stats-panel"
+import { TraitEvolutionModal } from "./trait-evolution-modal"
 
 export function SimulationView() {
   const { startSimulation, quitSimulation, resetToPreview } = useSimulation()
   const phase = useSimulationStore((s) => s.phase)
   const isRunning = useSimulationStore((s) => s.isRunning)
   const sessionSummary = useSimulationStore((s) => s.sessionSummary)
+
+  const [chartAxisMode, setChartAxisMode] = useState<ChartAxisMode>("generation")
+  const [traitChartExpanded, setTraitChartExpanded] = useState(false)
+  const [selectedTrait, setSelectedTrait] = useState<TraitStatKey | null>(null)
 
   useEffect(() => {
     document.documentElement.classList.add("dark")
@@ -55,11 +61,25 @@ export function SimulationView() {
         <div className="relative min-h-0 flex-1 p-4">
           <SimulationCanvas />
           <CreatureInspector />
+          <TraitEvolutionModal
+            open={traitChartExpanded}
+            onClose={() => setTraitChartExpanded(false)}
+            axisMode={chartAxisMode}
+            selectedTrait={selectedTrait}
+            onSelectedTraitChange={setSelectedTrait}
+          />
         </div>
       </main>
 
       <div className="w-72 shrink-0 border-l border-[var(--quark-border)]">
-        <StatsPanel />
+        <StatsPanel
+          chartAxisMode={chartAxisMode}
+          onChartAxisModeChange={setChartAxisMode}
+          showTraitExpand={phase === "active"}
+          onExpandTraitChart={() => setTraitChartExpanded(true)}
+          selectedTrait={selectedTrait}
+          onSelectedTraitChange={setSelectedTrait}
+        />
       </div>
 
       <BrainPanel />
