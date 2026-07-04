@@ -16,12 +16,18 @@ import {
 import {
   type ChartAxisMode,
   buildChartSeries,
+  buildSpeciesPopulationSeries,
+  type GenerationChartPoint,
+  type TickChartPoint,
   type TraitStatKey,
 } from "@/lib/chart-data"
+import { buildAdaptiveSpaceData } from "@/lib/adaptive-space"
 import { useSimulationStore } from "@/store/simulation-store"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { AdaptiveSpaceChart } from "./adaptive-space-chart"
 import { TraitEvolutionChart } from "./trait-evolution-chart"
+import { SpeciesPopulationChart } from "./species-population-chart"
 
 export type { ChartAxisMode }
 
@@ -81,39 +87,98 @@ function AxisToggle({
   )
 }
 
+type PanelTab = "cards" | "charts"
+
+function PanelTabToggle({
+  activeTab,
+  onChange,
+}: {
+  activeTab: PanelTab
+  onChange: (tab: PanelTab) => void
+}) {
+  return (
+    <div className="grid grid-cols-2 rounded-md border border-[var(--quark-border)] p-0.5">
+      {(
+        [
+          { id: "cards" as const, label: "Cards" },
+          { id: "charts" as const, label: "Charts" },
+        ] as const
+      ).map(({ id, label }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          className={cn(
+            "rounded-sm px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider transition-colors",
+            activeTab === id
+              ? "bg-[var(--quark-accent)] text-[#06060f]"
+              : "text-[var(--quark-muted)] hover:text-foreground",
+          )}
+          aria-pressed={activeTab === id}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+type ChartPoint = GenerationChartPoint | TickChartPoint
+type MiniChartKey = "population" | "averageFitness" | "speciesDiversity"
+
+function pointX(point: ChartPoint, axisMode: ChartAxisMode): number {
+  return axisMode === "generation" ? point.generation : (point as TickChartPoint).x
+}
+
+function buildGenerationMarkers(
+  data: { x: number }[],
+  axisMode: ChartAxisMode,
+  generationLength: number,
+  showGenerationMarkers: boolean,
+): number[] {
+  if (
+    !showGenerationMarkers ||
+    axisMode !== "tick" ||
+    data.length === 0 ||
+    generationLength <= 0
+  ) {
+    return []
+  }
+
+  const maxX = Math.max(...data.map((d) => d.x))
+  const markers: number[] = []
+  for (let x = generationLength; x <= maxX; x += generationLength) {
+    markers.push(x)
+  }
+  return markers
+}
+
 function DualPopulationChart({
   axisMode,
   generationLength,
+  data,
   showGenerationMarkers = true,
 }: {
   axisMode: ChartAxisMode
   generationLength: number
+  data: {
+    x: number
+    label: string
+    herbivores: number
+    carnivores: number
+  }[]
   showGenerationMarkers?: boolean
 }) {
-  const statsHistory = useSimulationStore((s) => s.statsHistory)
-
-  const data = useMemo(() => {
-    const series = buildChartSeries(statsHistory, axisMode, generationLength)
-    return series.map((point) => ({
-      x: axisMode === "generation" ? point.generation : (point as { x: number }).x,
-      label: point.label,
-      herbivores: point.herbivorePopulation,
-      carnivores: point.carnivorePopulation,
-    }))
-  }, [statsHistory, axisMode, generationLength])
-
-  const generationMarkers = useMemo(() => {
-    if (!showGenerationMarkers || axisMode !== "tick" || data.length === 0) {
-      return []
-    }
-    const maxX = Math.max(...data.map((d) => d.x))
-    const markers: number[] = []
-    for (let x = generationLength; x <= maxX; x += generationLength) {
-      markers.push(x)
-    }
-    return markers
-  }, [axisMode, data, generationLength, showGenerationMarkers])
-
+  const generationMarkers = useMemo(
+    () =>
+      buildGenerationMarkers(
+        data,
+        axisMode,
+        generationLength,
+        showGenerationMarkers,
+      ),
+    [axisMode, data, generationLength, showGenerationMarkers],
+  )
   const xLabel = axisMode === "tick" ? "Tick" : "Generation"
 
   return (
@@ -195,42 +260,29 @@ function DualPopulationChart({
 
 function MiniChart({
   title,
-  dataKey,
   color,
   axisMode,
   generationLength,
+  data,
   showGenerationMarkers = true,
 }: {
   title: string
-  dataKey: "population" | "averageFitness" | "speciesDiversity"
   color: string
   axisMode: ChartAxisMode
   generationLength: number
+  data: { x: number; label: string; value: number }[]
   showGenerationMarkers?: boolean
 }) {
-  const statsHistory = useSimulationStore((s) => s.statsHistory)
-
-  const data = useMemo(() => {
-    const series = buildChartSeries(statsHistory, axisMode, generationLength)
-    return series.map((point) => ({
-      x: axisMode === "generation" ? point.generation : (point as { x: number }).x,
-      label: point.label,
-      value: point[dataKey],
-    }))
-  }, [statsHistory, axisMode, dataKey, generationLength])
-
-  const generationMarkers = useMemo(() => {
-    if (!showGenerationMarkers || axisMode !== "tick" || data.length === 0) {
-      return []
-    }
-    const maxX = Math.max(...data.map((d) => d.x))
-    const markers: number[] = []
-    for (let x = generationLength; x <= maxX; x += generationLength) {
-      markers.push(x)
-    }
-    return markers
-  }, [axisMode, data, generationLength, showGenerationMarkers])
-
+  const generationMarkers = useMemo(
+    () =>
+      buildGenerationMarkers(
+        data,
+        axisMode,
+        generationLength,
+        showGenerationMarkers,
+      ),
+    [axisMode, data, generationLength, showGenerationMarkers],
+  )
   const xLabel = axisMode === "tick" ? "Tick" : "Generation"
 
   return (
@@ -301,6 +353,8 @@ interface StatsPanelProps {
   onChartAxisModeChange?: (mode: ChartAxisMode) => void
   showTraitExpand?: boolean
   onExpandTraitChart?: () => void
+  onExpandSpeciesChart?: () => void
+  onExpandAdaptiveSpace?: () => void
   selectedTrait?: TraitStatKey | null
   onSelectedTraitChange?: (trait: TraitStatKey | null) => void
 }
@@ -310,16 +364,19 @@ export function StatsPanel({
   onChartAxisModeChange,
   showTraitExpand = false,
   onExpandTraitChart,
+  onExpandSpeciesChart,
+  onExpandAdaptiveSpace,
   selectedTrait,
   onSelectedTraitChange,
 }: StatsPanelProps = {}) {
   const stats = useSimulationStore((s) => s.stats)
   const statsHistory = useSimulationStore((s) => s.statsHistory)
+  const creatures = useSimulationStore((s) => s.creatures)
   const generationLength = useSimulationStore((s) => s.config.generationLength)
-  const carnivorePop = useSimulationStore((s) => s.config.carnivorePop)
   const ecosystemMode = useSimulationStore((s) => s.config.ecosystemMode)
   const [internalAxisMode, setInternalAxisMode] =
     useState<ChartAxisMode>("generation")
+  const [activeTab, setActiveTab] = useState<PanelTab>("charts")
 
   const chartAxisMode = ecosystemMode
     ? "tick"
@@ -329,6 +386,34 @@ export function StatsPanel({
   const traitChartData = useMemo(
     () => buildChartSeries(statsHistory, chartAxisMode, generationLength),
     [statsHistory, chartAxisMode, generationLength],
+  )
+  const miniChartData = useMemo(() => {
+    const makeMini = (key: MiniChartKey) =>
+      traitChartData.map((point) => ({
+        x: pointX(point, chartAxisMode),
+        label: point.label,
+        value: point[key],
+      }))
+
+    return {
+      population: makeMini("population"),
+      averageFitness: makeMini("averageFitness"),
+      speciesDiversity: makeMini("speciesDiversity"),
+      dualPopulation: traitChartData.map((point) => ({
+        x: pointX(point, chartAxisMode),
+        label: point.label,
+        herbivores: point.herbivorePopulation,
+        carnivores: point.carnivorePopulation,
+      })),
+    }
+  }, [chartAxisMode, traitChartData])
+  const speciesChart = useMemo(
+    () => buildSpeciesPopulationSeries(statsHistory, chartAxisMode, generationLength),
+    [statsHistory, chartAxisMode, generationLength],
+  )
+  const adaptiveSpaceData = useMemo(
+    () => buildAdaptiveSpaceData(creatures),
+    [creatures],
   )
 
   return (
@@ -346,14 +431,23 @@ export function StatsPanel({
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">
           <span className="text-[10px] uppercase tracking-wider text-[var(--quark-muted)]">
-            Chart axis
+            View
           </span>
-          <AxisToggle mode={chartAxisMode} onChange={setChartAxisMode} />
+          <PanelTabToggle activeTab={activeTab} onChange={setActiveTab} />
         </div>
+        {activeTab === "charts" && (
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--quark-muted)]">
+              Chart axis
+            </span>
+            <AxisToggle mode={chartAxisMode} onChange={setChartAxisMode} />
+          </div>
+        )}
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        <div className="grid grid-cols-2 gap-2">
+        {activeTab === "cards" ? (
+          <div className="grid grid-cols-2 gap-2">
           {ecosystemMode ? (
             <>
               <StatCard label="Tick" value={stats.tick} accent />
@@ -368,11 +462,15 @@ export function StatsPanel({
               <StatCard label="Population" value={stats.population} />
             </>
           )}
-          {carnivorePop > 0 && (
+          {(stats.omnivorePopulation > 0 || stats.carnivorePopulation > 0) && (
             <>
               <StatCard
                 label="Herbivores"
                 value={stats.herbivorePopulation}
+              />
+              <StatCard
+                label="Omnivores"
+                value={stats.omnivorePopulation}
               />
               <StatCard
                 label="Carnivores"
@@ -401,48 +499,115 @@ export function StatsPanel({
             label="Avg Food Eaten"
             value={stats.averageFoodEaten.toFixed(1)}
           />
-          {carnivorePop > 0 && (
+          <StatCard
+            label="Avg Meat Eaten"
+            value={stats.averageMeatEaten.toFixed(1)}
+          />
+          <StatCard
+              label="Avg Rotten"
+            value={stats.averageCarrionEaten.toFixed(1)}
+          />
+            <StatCard label="Rotten Map" value={stats.carrionResources} />
+          <StatCard
+            label="Potential Hunters"
+            value={stats.potentialHunterPopulation}
+          />
+          <StatCard label="Meat Capable" value={stats.meatCapablePopulation} />
+          <StatCard label="Failed Hunts" value={stats.failedAttackEvents} />
+          {(stats.omnivorePopulation > 0 || stats.carnivorePopulation > 0) && (
             <StatCard
               label="Avg Kills"
               value={stats.averageKillCount.toFixed(1)}
             />
           )}
           <StatCard label="Diversity" value={stats.speciesDiversity} />
+          <StatCard
+            label="X Perception"
+            value={stats.averagePerceptionScore.toFixed(0)}
+          />
+          <StatCard
+            label="Y Biomech"
+            value={stats.averageBiomechanicsScore.toFixed(0)}
+          />
+          <StatCard
+            label="Z Metabolism"
+            value={stats.averageMetabolismScore.toFixed(0)}
+          />
           <StatCard label="Avg Size" value={stats.averageSize.toFixed(1)} />
           <StatCard
-            label="Avg Vision"
-            value={stats.averageVisionRange.toFixed(0)}
+            label="Predation"
+            value={stats.averagePredationDrive.toFixed(2)}
+          />
+          <StatCard
+            label="Toxin Resist"
+            value={stats.averageToxinResistance.toFixed(2)}
           />
           {!ecosystemMode && <StatCard label="Tick" value={stats.tick} />}
-        </div>
+          </div>
+        ) : (
+          <>
 
         <MiniChart
           title="Population"
-          dataKey="population"
           color="#00e5cc"
+          data={miniChartData.population}
           axisMode={chartAxisMode}
           generationLength={generationLength}
           showGenerationMarkers={!ecosystemMode}
         />
-        {carnivorePop > 0 && (
+        {stats.carnivorePopulation > 0 && (
           <DualPopulationChart
+            data={miniChartData.dualPopulation}
             axisMode={chartAxisMode}
             generationLength={generationLength}
             showGenerationMarkers={!ecosystemMode}
           />
         )}
+        <div className="rounded-md border border-[var(--quark-border)] bg-black/20 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--quark-muted)]">
+                Adaptive Space
+              </p>
+              <p className="text-[9px] text-[var(--quark-muted)]/80">
+                Perception · Biomechanics · Metabolism
+              </p>
+            </div>
+            {showTraitExpand && onExpandAdaptiveSpace && (
+              <button
+                type="button"
+                onClick={onExpandAdaptiveSpace}
+                className="rounded px-2 py-1 text-[10px] text-[var(--quark-accent)] transition-colors hover:bg-[var(--quark-accent)]/10"
+              >
+                Expand
+              </button>
+            )}
+          </div>
+          <AdaptiveSpaceChart
+            data={adaptiveSpaceData}
+            height={170}
+            interactive={false}
+          />
+        </div>
+        <SpeciesPopulationChart
+          data={speciesChart.data}
+          families={speciesChart.families}
+          axisMode={chartAxisMode}
+          showExpand={showTraitExpand}
+          onExpand={onExpandSpeciesChart}
+        />
         <MiniChart
           title="Average Fitness"
-          dataKey="averageFitness"
           color="#ff9900"
+          data={miniChartData.averageFitness}
           axisMode={chartAxisMode}
           generationLength={generationLength}
           showGenerationMarkers={!ecosystemMode}
         />
         <MiniChart
           title="Species Diversity"
-          dataKey="speciesDiversity"
           color="#9933ff"
+          data={miniChartData.speciesDiversity}
           axisMode={chartAxisMode}
           generationLength={generationLength}
           showGenerationMarkers={!ecosystemMode}
@@ -455,6 +620,8 @@ export function StatsPanel({
           selectedTrait={selectedTrait}
           onSelectedTraitChange={onSelectedTraitChange}
         />
+          </>
+        )}
       </div>
     </aside>
   )

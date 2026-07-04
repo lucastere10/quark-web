@@ -14,11 +14,9 @@ export const SLIDER_HINTS = {
   foodDensity:
     "Target number of food dots in the world. More food makes survival easier and reduces evolutionary pressure.",
   poisonDensity:
-    "Number of poison dots. Creatures that touch poison lose energy — favors avoidance strategies.",
+    "Small number of poison dots. Touching poison drains energy based on each creature's toxin resistance.",
   foodDistribution:
     "Uniform spreads food evenly. Cluster groups food into patches, favoring foraging and migration strategies.",
-  obstacleCount:
-    "Static obstacles creatures must navigate around. Reflection physics only — no scripted pathfinding.",
   worldWidth:
     "Horizontal size of the simulation arena. Larger worlds spread resources and increase travel distance.",
   worldHeight:
@@ -29,18 +27,24 @@ export const SLIDER_HINTS = {
     "Laboratory ceiling for evolved speed. Each creature uses the minimum of its DNA trait and this cap.",
   noiseStrength:
     "Random noise injected into the neural network each tick. Lower values produce steadier movement.",
+  predationMaxPreySizeRatio:
+    "Largest prey size a hunter can attack relative to its own body. Lower values make predation rarer and safer for small animals.",
   initialEnergy:
     "Starting energy for each creature at birth. Low energy creates immediate survival pressure.",
   ecosystemMode:
     "Runs the world continuously without generation resets. Animals survive, die, and reproduce inside the same timeline.",
   simulationDynamics:
-    "Chooses whether the scenario runs as a herbivore-only evolutionary experiment or with predator/prey pressure.",
+    "Chooses how strongly the world favors predation. Emergent Predation starts with a small predator seed.",
   vegetationGrowthRate:
     "Ticks required for new plants to mature. Slower growth makes grazing pressure more visible.",
   vegetationSpreadRadius:
     "Maximum seed spread distance from mature plants. Larger values create wider and faster-moving patches.",
   fertilityDriftRate:
     "Speed of moving fertile regions. Higher values make vegetation hotspots migrate through the world.",
+  climateVolatility:
+    "How quickly climate seasons shift. Higher values create sharper rain, drought, heat, and cold transitions.",
+  rainBias:
+    "Overall weather tendency. Negative values favor dry seasons, positive values favor humid and rainy seasons.",
 } as const
 
 export type SliderHintKey = keyof typeof SLIDER_HINTS

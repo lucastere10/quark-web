@@ -100,8 +100,8 @@ export function AboutDialog() {
             <p className="text-xs leading-relaxed text-[var(--quark-muted)]">
               Quark is an interactive web experiment where creatures survive
               with small feed-forward neural networks and genetic algorithms. No
-              behaviors are scripted — each agent senses food, poison, and
-              obstacles, decides how to move, and passes mutated brains to the
+              behaviors are scripted — each agent senses food, poison, walls,
+              prey, and predators, then passes mutated brains to the
               next generation if it performs well enough.
             </p>
             <p className="mt-2 text-xs leading-relaxed text-[var(--quark-muted)]">

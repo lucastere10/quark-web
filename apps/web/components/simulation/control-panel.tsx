@@ -207,14 +207,14 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 <div className="grid grid-cols-2 gap-2">
                   <ModeOption
                     title="Evolutionary"
-                    description="Single-species evolution around food, poison, and terrain."
+                    description="Herbivores may evolve into omnivores or carnivores over time."
                     active={simulationDynamics === "evolutionary"}
                     disabled={controlsDisabled}
                     onClick={() => setDynamics("evolutionary")}
                   />
                   <ModeOption
-                    title="Predator / Prey"
-                    description="Adds carnivores that hunt prey and recycle kills into meat."
+                    title="Emergent Predation"
+                    description="Seeds a few predators and favors hunting niches when prey is abundant."
                     active={simulationDynamics === "predator-prey"}
                     disabled={controlsDisabled}
                     onClick={() => setDynamics("predator-prey")}
@@ -254,6 +254,28 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 disabled={ecosystemControlsDisabled}
                 format={(v) => v.toFixed(1)}
                 onChange={(v) => setConfig({ fertilityDriftRate: v })}
+              />
+              <SliderWithHint
+                hintKey="climateVolatility"
+                label="Climate Volatility"
+                value={config.climateVolatility}
+                min={0}
+                max={1}
+                step={0.05}
+                disabled={ecosystemControlsDisabled}
+                format={(v) => `${(v * 100).toFixed(0)}%`}
+                onChange={(v) => setConfig({ climateVolatility: v })}
+              />
+              <SliderWithHint
+                hintKey="rainBias"
+                label="Rain Bias"
+                value={config.rainBias}
+                min={-1}
+                max={1}
+                step={0.05}
+                disabled={ecosystemControlsDisabled}
+                format={(v) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(0)}%`}
+                onChange={(v) => setConfig({ rainBias: v })}
               />
             </div>
           </CollapsibleSection>
@@ -336,8 +358,8 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 label="Poison Density"
                 value={config.poisonDensity}
                 min={0}
-                max={80}
-                step={5}
+                max={10}
+                step={1}
                 disabled={controlsDisabled}
                 onChange={(v) => setConfig({ poisonDensity: v })}
               />
@@ -366,16 +388,6 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                   {SLIDER_HINTS.foodDistribution}
                 </p>
               </div>
-              <SliderWithHint
-                hintKey="obstacleCount"
-                label="Obstacle Count"
-                value={config.obstacleCount}
-                min={0}
-                max={24}
-                step={2}
-                disabled={controlsDisabled}
-                onChange={(v) => setConfig({ obstacleCount: v })}
-              />
               <SliderWithHint
                 hintKey="worldWidth"
                 label="World Width"
@@ -444,6 +456,17 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 disabled={controlsDisabled}
                 format={(v) => v.toFixed(2)}
                 onChange={(v) => setConfig({ noiseStrength: v })}
+              />
+              <SliderWithHint
+                hintKey="predationMaxPreySizeRatio"
+                label="Prey Size Ratio"
+                value={config.predationMaxPreySizeRatio}
+                min={0.4}
+                max={0.7}
+                step={0.05}
+                disabled={controlsDisabled}
+                format={(v) => `${(v * 100).toFixed(0)}%`}
+                onChange={(v) => setConfig({ predationMaxPreySizeRatio: v })}
               />
             </div>
           </CollapsibleSection>

@@ -105,24 +105,28 @@ export function SimulationSummaryDialog({
               value: summary.finalAverageSize.toFixed(1),
             },
             {
-              label: "Final Avg Vision",
-              value: summary.finalAverageVision.toFixed(0),
+              label: "Final X Perception",
+              value: summary.finalAveragePerception.toFixed(0),
             },
             {
-              label: "Final Avg Speed",
-              value: summary.finalAverageSpeed.toFixed(2),
+              label: "Final Y Biomech",
+              value: summary.finalAverageBiomechanics.toFixed(0),
+            },
+            {
+              label: "Final Z Metabolism",
+              value: summary.finalAverageMetabolismScore.toFixed(0),
             },
             {
               label: "Peak Avg Size",
               value: summary.peakAverageSize.toFixed(1),
             },
             {
-              label: "Peak Avg Vision",
-              value: summary.peakAverageVision.toFixed(0),
+              label: "Peak X Perception",
+              value: summary.peakAveragePerception.toFixed(0),
             },
             {
-              label: "Final Metabolism",
-              value: summary.finalAverageMetabolism.toFixed(3),
+              label: "Predation Drive",
+              value: summary.finalAveragePredationDrive.toFixed(2),
             },
           ].map((stat) => (
             <div

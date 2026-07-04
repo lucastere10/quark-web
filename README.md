@@ -9,7 +9,7 @@ Interactive artificial life simulation where creatures survive with small neural
 
 ## What it does
 
-Each creature starts with a random feed-forward neural network and zero knowledge of its environment. Every tick it senses food, poison, walls, and obstacles, decides how to move, spends energy, and tries to survive until the generation ends. The fittest reproduce; offspring inherit mutated brains and physical traits.
+Each creature starts with a random feed-forward neural network and zero knowledge of its environment. Every tick it senses food, poison, walls, prey, and predators, decides how to move, spends energy, and tries to survive until the generation ends. The fittest reproduce; offspring inherit mutated brains and physical traits.
 
 You can watch evolution in real time, tweak parameters (mutation rate, food density, selection pressure, noise, and more), inspect any creature's brain live, and compare stats across generations.
 
@@ -18,7 +18,7 @@ You can watch evolution in real time, tweak parameters (mutation rate, food dens
 - **Neuroevolution** — MLP (7 → 12 → 6) with sigmoid activations, implemented from scratch
 - **Genetic algorithm** — tournament selection, crossover, mutation, elitism
 - **Evolving traits** — vision, speed, size, metabolism encoded in DNA
-- **Interactive world** — food clusters, poison, static obstacles, multiple scenarios
+- **Interactive world** — food clusters, poison, climate, predation, and multiple scenarios
 - **Brain inspector** — inputs, outputs, activations, and connections in real time
 - **Expanded brain panel** — resizable side panel with React Flow visualization
 - **Live stats** — population, fitness, diversity, food eaten

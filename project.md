@@ -68,10 +68,10 @@ Examples include:
 
 * 🌱 Food
 * ☠️ Poison
-* 🪨 Obstacles
+* 🧬 Emerging species families
 * 🌊 Water
 * 🔥 Dangerous areas
-* 🦅 Predators (future feature)
+* 🦅 Predators
 
 Each environment naturally favors different strategies.
 
@@ -88,7 +88,7 @@ Inputs
 
 Food Distance
 Food Direction
-Obstacle Distance
+Danger Distance
 Energy
 Speed
 Age
@@ -153,7 +153,6 @@ Resources replenish gradually between generations (no full map reset).
 
 * **Uniform** — food spread evenly across the world
 * **Cluster** — food grouped in patches (favors foraging and migration)
-* **Obstacles** — static circles with reflection physics (no scripted pathfinding)
 
 ---
 
@@ -176,7 +175,6 @@ Examples:
 * Food Density
 * Poison Density
 * Food Distribution (uniform / cluster)
-* Obstacle Count
 * World Size
 
 ## Creature
