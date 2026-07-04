@@ -1,22 +1,22 @@
 export const INPUT_COUNT = 14
-export const HIDDEN_COUNT = 16
+export const HIDDEN_COUNT = 8
 export const OUTPUT_COUNT = 4
 
 export const INPUT_LABELS = [
-  "Vision Cone Left",
-  "Vision Cone Front",
-  "Vision Cone Right",
-  "Food Scent",
-  "Nearest Food Distance",
-  "Nearest Food Direction",
-  "Poison Distance",
-  "Poison Direction",
-  "Wall Distance",
-  "Wall Direction",
-  "Obstacle Distance",
-  "Obstacle Direction",
+  "Cone Signal",
+  "Cone Angle",
+  "Hazard Distance",
+  "Hazard Angle",
   "Energy",
   "Speed",
+  "Threat/Prey Distance",
+  "Threat/Prey Angle",
+  "Locked On",
+  "Chase Duration",
+  "Scent Signal",
+  "Scent Angle",
+  "Hearing Signal",
+  "Hearing Angle",
 ] as const
 
 export const OUTPUT_LABELS = [

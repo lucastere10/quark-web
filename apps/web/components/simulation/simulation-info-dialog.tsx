@@ -45,9 +45,9 @@ function NeuralDiagram() {
   return (
     <svg viewBox="0 0 320 80" className="w-full max-w-sm">
       {[
-        { x: 20, labels: ["Food", "Poison", "Energy"] },
+        { x: 20, labels: ["Cone", "Hazard", "Energy"] },
         { x: 140, labels: ["H1", "H2", "H3"] },
-        { x: 260, labels: ["Move", "Eat", "Rest"] },
+        { x: 260, labels: ["Steer", "Eat", "Rest"] },
       ].map((col, ci) => (
         <g key={ci}>
           {col.labels.map((label, i) => (
@@ -75,13 +75,13 @@ function NeuralDiagram() {
         </g>
       ))}
       <text x="20" y="78" fill="rgba(0,229,204,0.6)" fontSize="9">
-        Inputs (7)
+        Inputs (8)
       </text>
       <text x="140" y="78" fill="rgba(153,51,255,0.6)" fontSize="9">
-        Hidden (12)
+        Hidden (8)
       </text>
       <text x="260" y="78" fill="rgba(255,153,0,0.6)" fontSize="9">
-        Outputs (6)
+        Outputs (4)
       </text>
     </svg>
   )

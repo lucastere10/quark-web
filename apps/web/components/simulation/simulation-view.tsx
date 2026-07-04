@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 
+import type { SimulationDynamics } from "@/engine/scenarios"
 import { useSimulation } from "@/hooks/use-simulation"
 import type { ChartAxisMode, TraitStatKey } from "@/lib/chart-data"
 import { useSimulationStore } from "@/store/simulation-store"
@@ -10,6 +11,7 @@ import { BrainPanel } from "./brain-panel"
 import { ControlPanel } from "./control-panel"
 import { CreatureInspector } from "./creature-inspector"
 import { SimulationCanvas } from "./simulation-canvas"
+import { SimulationModeDialog } from "./simulation-mode-dialog"
 import { SimulationSummaryDialog } from "./simulation-summary-dialog"
 import { StatsPanel } from "./stats-panel"
 import { TraitEvolutionModal } from "./trait-evolution-modal"
@@ -19,6 +21,9 @@ export function SimulationView() {
   const phase = useSimulationStore((s) => s.phase)
   const isRunning = useSimulationStore((s) => s.isRunning)
   const sessionSummary = useSimulationStore((s) => s.sessionSummary)
+  const ecosystemMode = useSimulationStore((s) => s.config.ecosystemMode)
+  const setConfig = useSimulationStore((s) => s.setConfig)
+  const setDynamics = useSimulationStore((s) => s.setDynamics)
 
   const [chartAxisMode, setChartAxisMode] = useState<ChartAxisMode>("generation")
   const [traitChartExpanded, setTraitChartExpanded] = useState(false)
@@ -28,8 +33,18 @@ export function SimulationView() {
     document.documentElement.classList.add("dark")
   }, [])
 
+  const effectiveChartAxisMode = ecosystemMode ? "tick" : chartAxisMode
+
   const handleCloseSummary = () => {
     resetToPreview()
+  }
+
+  const handleSelectMode = (
+    nextEcosystemMode: boolean,
+    nextDynamics: SimulationDynamics,
+  ) => {
+    setConfig({ ecosystemMode: nextEcosystemMode })
+    setDynamics(nextDynamics)
   }
 
   return (
@@ -64,7 +79,7 @@ export function SimulationView() {
           <TraitEvolutionModal
             open={traitChartExpanded}
             onClose={() => setTraitChartExpanded(false)}
-            axisMode={chartAxisMode}
+            axisMode={effectiveChartAxisMode}
             selectedTrait={selectedTrait}
             onSelectedTraitChange={setSelectedTrait}
           />
@@ -73,7 +88,7 @@ export function SimulationView() {
 
       <div className="w-72 shrink-0 border-l border-[var(--quark-border)]">
         <StatsPanel
-          chartAxisMode={chartAxisMode}
+          chartAxisMode={effectiveChartAxisMode}
           onChartAxisModeChange={setChartAxisMode}
           showTraitExpand={phase === "active"}
           onExpandTraitChart={() => setTraitChartExpanded(true)}
@@ -83,6 +98,11 @@ export function SimulationView() {
       </div>
 
       <BrainPanel />
+      <SimulationModeDialog
+        phase={phase}
+        onSelectMode={handleSelectMode}
+        onStart={startSimulation}
+      />
       <SimulationSummaryDialog
         summary={sessionSummary}
         open={phase === "ended" && sessionSummary !== null}
