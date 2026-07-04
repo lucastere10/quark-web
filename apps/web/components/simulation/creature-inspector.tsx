@@ -1,5 +1,7 @@
 "use client"
 
+import { useEffect } from "react"
+
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Maximize2, Minimize2, X } from "lucide-react"
@@ -19,6 +21,13 @@ export function CreatureInspector() {
   const setInspectorMinimized = useSimulationStore(
     (s) => s.setInspectorMinimized,
   )
+  const hydrateInspectorMinimized = useSimulationStore(
+    (s) => s.hydrateInspectorMinimized,
+  )
+
+  useEffect(() => {
+    hydrateInspectorMinimized()
+  }, [hydrateInspectorMinimized])
 
   const creature = creatures.find((c) => c.id === selectedCreatureId)
 
@@ -26,11 +35,17 @@ export function CreatureInspector() {
 
   const behaviorHint = getBehaviorHint(creature)
   const speciesLabel =
-    creature.species === "carnivore" ? "Carnivore" : "Herbivore"
+    creature.species === "carnivore"
+      ? "Carnivore"
+      : creature.species === "omnivore"
+        ? "Omnivore"
+        : "Herbivore"
   const speciesClassName =
     creature.species === "carnivore"
       ? "border-[#ff6633]/50 font-mono text-[10px] text-[#ff6633]"
-      : "border-[#22ff77]/50 font-mono text-[10px] text-[#22ff77]"
+      : creature.species === "omnivore"
+        ? "border-[#ff9900]/50 font-mono text-[10px] text-[#ff9900]"
+        : "border-[#22ff77]/50 font-mono text-[10px] text-[#22ff77]"
 
   if (inspectorMinimized) {
     return (
@@ -115,7 +130,7 @@ export function CreatureInspector() {
             )}
           </div>
           <p className="mt-1 font-mono text-xs text-[var(--quark-muted)]">
-            DNA: {creature.dnaHash}
+            DNA: {creature.dnaHash} · Family {creature.familyId}
           </p>
           <p className="mt-1 text-xs text-[var(--quark-accent)]/90">
             {behaviorHint}
@@ -150,9 +165,14 @@ export function CreatureInspector() {
           },
           { label: "Fitness", value: creature.fitness.toFixed(1) },
           { label: "Food Eaten", value: creature.foodEaten },
-          ...(creature.species === "carnivore"
+          { label: "Meat Eaten", value: creature.meatEaten },
+          { label: "Rotten Eaten", value: creature.carrionEaten },
+          ...(creature.species !== "herbivore"
             ? [{ label: "Kills", value: creature.killCount }]
             : [{ label: "Times Attacked", value: creature.timesAttacked }]),
+          { label: "X Perception", value: creature.perceptionScore },
+          { label: "Y Biomech", value: creature.biomechanicsScore },
+          { label: "Z Metabolism", value: creature.metabolismScore },
           { label: "Distance", value: creature.distanceTraveled.toFixed(0) },
           { label: "Vision", value: creature.visionRange.toFixed(0) },
           {
@@ -164,6 +184,13 @@ export function CreatureInspector() {
           { label: "Noise", value: creature.noiseEmission.toFixed(2) },
           { label: "Speed Cap", value: creature.maxSpeed.toFixed(1) },
           { label: "Size", value: creature.size.toFixed(1) },
+          { label: "Strength", value: creature.strength.toFixed(2) },
+          { label: "Endurance", value: creature.endurance.toFixed(2) },
+          { label: "Plant Digest", value: creature.plantDigestEfficiency.toFixed(2) },
+          { label: "Meat Digest", value: creature.meatDigestEfficiency.toFixed(2) },
+          { label: "Rotten Digest", value: creature.carrionDigestEfficiency.toFixed(2) },
+          { label: "Toxin Resist", value: creature.toxinResistance.toFixed(2) },
+          { label: "Predation", value: creature.predationDrive.toFixed(2) },
         ].map((stat) => (
           <div
             key={stat.label}

@@ -10,7 +10,6 @@ import {
 } from "@/lib/chart-data"
 import {
   type CreatureSnapshot,
-  type ObstacleRenderSnapshot,
   type ResourceRenderSnapshot,
   type SessionSummary,
   useSimulationStore,
@@ -28,7 +27,7 @@ function syncWorldToStore(world: World) {
   store.setCreatures(world.creatures.map((c) => c.toSnapshot()))
   store.setResources([...world.resources])
   store.setKillEvents(world.drainKillEvents())
-  store.setObstacles([...world.obstacles])
+  store.pushSimulationEvents(world.drainEvents())
   store.setFertility(world.getFertilitySnapshot())
 }
 
@@ -56,15 +55,19 @@ function buildSessionSummary(
     survivalRate: finalStats.survivalRate,
     peakPopulation,
     finalAverageSize: lastPoint?.averageSize ?? finalStats.averageSize,
-    finalAverageVision:
-      lastPoint?.averageVisionRange ?? finalStats.averageVisionRange,
-    finalAverageVisionAngle:
-      lastPoint?.averageVisionHalfAngle ?? finalStats.averageVisionHalfAngle,
-    finalAverageSpeed: lastPoint?.averageMaxSpeed ?? finalStats.averageMaxSpeed,
-    finalAverageMetabolism:
-      lastPoint?.averageMetabolism ?? finalStats.averageMetabolism,
+    finalAveragePerception:
+      lastPoint?.averagePerceptionScore ?? finalStats.averagePerceptionScore,
+    finalAverageBiomechanics:
+      lastPoint?.averageBiomechanicsScore ?? finalStats.averageBiomechanicsScore,
+    finalAverageMetabolismScore:
+      lastPoint?.averageMetabolismScore ?? finalStats.averageMetabolismScore,
+    finalAveragePredationDrive:
+      lastPoint?.averagePredationDrive ?? finalStats.averagePredationDrive,
     peakAverageSize: peakTraitValue(generationSeries, "averageSize"),
-    peakAverageVision: peakTraitValue(generationSeries, "averageVisionRange"),
+    peakAveragePerception: peakTraitValue(
+      generationSeries,
+      "averagePerceptionScore",
+    ),
     statsHistory: [...statsHistory],
   }
 }
@@ -95,7 +98,6 @@ export function useSimulation() {
     (
       allCreatures: CreatureSnapshot[],
       allResources: ResourceRenderSnapshot[],
-      allObstacles: ObstacleRenderSnapshot[],
       stats: ReturnType<World["getStats"]>,
     ) => {
       cancelPreviewTransition()
@@ -104,7 +106,6 @@ export function useSimulation() {
       store.setStats(stats)
       store.setCreatures([])
       store.setResources([])
-      store.setObstacles(allObstacles)
       store.selectCreature(null)
 
       let creatureIndex = 0
@@ -181,11 +182,10 @@ export function useSimulation() {
 
     const allCreatures = world.creatures.map((c) => c.toSnapshot())
     const allResources = [...world.resources]
-    const allObstacles = [...world.obstacles]
     const stats = world.getStats()
 
     useSimulationStore.getState().setFertility(world.getFertilitySnapshot())
-    startPreviewTransition(allCreatures, allResources, allObstacles, stats)
+    startPreviewTransition(allCreatures, allResources, stats)
   }, [previewSpawnToken, phase, config, startPreviewTransition])
 
   useEffect(() => {
@@ -215,22 +215,20 @@ export function useSimulation() {
 
           if (world.evolutionJustOccurred) {
             const stats = world.getStats()
-            store.setStats(stats)
-            store.pushStatsHistory(stats)
+            store.recordStatsSample(stats)
           }
         }
 
         store.setCreatures(world.creatures.map((c) => c.toSnapshot()))
         store.setResources([...world.resources])
         store.setKillEvents(world.drainKillEvents())
-        store.setObstacles([...world.obstacles])
+        store.pushSimulationEvents(world.drainEvents())
         store.setFertility(world.getFertilitySnapshot())
 
         tickCounterRef.current++
         if (tickCounterRef.current % STATS_INTERVAL === 0) {
           const stats = world.getStats()
-          store.setStats(stats)
-          store.pushStatsHistory(stats)
+          store.recordStatsSample(stats)
         }
       }
 
@@ -259,7 +257,7 @@ export function useSimulation() {
     tickCounterRef.current = 0
     tickAccumulatorRef.current = 0
     syncWorldToStore(worldRef.current)
-    store.pushStatsHistory(worldRef.current.getStats())
+    store.recordStatsSample(worldRef.current.getStats())
   }
 
   const quitSimulation = () => {
@@ -269,8 +267,7 @@ export function useSimulation() {
 
     world.pause()
     const finalStats = world.getStats()
-    store.setStats(finalStats)
-    store.pushStatsHistory(finalStats)
+    store.recordStatsSample(finalStats)
     const summary = buildSessionSummary(store.statsHistory, finalStats)
     store.setSessionSummary(summary)
     store.setRunning(false)

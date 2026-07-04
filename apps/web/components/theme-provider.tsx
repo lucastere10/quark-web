@@ -3,10 +3,39 @@
 import * as React from "react"
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes"
 
+const NEXT_THEMES_SCRIPT_WARNING =
+  "Encountered a script tag while rendering React component"
+
+let didPatchThemeWarning = false
+
+function suppressNextThemesScriptWarning() {
+  if (
+    didPatchThemeWarning ||
+    typeof window === "undefined"
+  ) {
+    return
+  }
+
+  const originalError = console.error
+  console.error = (...args: unknown[]) => {
+    if (
+      typeof args[0] === "string" &&
+      args[0].includes(NEXT_THEMES_SCRIPT_WARNING)
+    ) {
+      return
+    }
+
+    originalError(...args)
+  }
+  didPatchThemeWarning = true
+}
+
 function ThemeProvider({
   children,
   ...props
 }: React.ComponentProps<typeof NextThemesProvider>) {
+  suppressNextThemesScriptWarning()
+
   return (
     <NextThemesProvider
       attribute="class"

@@ -1,18 +1,23 @@
 import { angleTo, distance } from "./collision"
 import {
+  classifyDiet,
+  computeTraitAxes,
   createRandomDNA,
   dnaHash,
   extractTraits,
   extractWeights,
   mutateDNA,
+  type DietClass,
+  type MutationBiasOptions,
+  type TraitAxes,
   type CreatureTraits,
 } from "./genetics"
 import { INPUT_COUNT, NeuralNetwork, OUTPUT_COUNT } from "./neural-network"
 
 let nextCreatureId = 1
 
-export type Species = "herbivore" | "carnivore"
-export type ResourceType = "food" | "poison" | "meat"
+export type Species = DietClass
+export type ResourceType = "food" | "poison" | "meat" | "carrion"
 
 export interface ResourceSnapshot {
   id: number
@@ -21,13 +26,6 @@ export interface ResourceSnapshot {
   type: ResourceType
   age?: number
   energy?: number
-}
-
-export interface ObstacleSnapshot {
-  id: number
-  x: number
-  y: number
-  radius: number
 }
 
 export interface CreatureSenseSnapshot {
@@ -49,10 +47,27 @@ export interface TraitCaps {
 
 export interface ActOptions {
   sprintCostMultiplier?: number
+  metabolismModifier?: number
 }
 
 export interface ThinkOptions {
-  targetedByPredator?: boolean
+  visionModifier?: number
+  scentModifier?: number
+  localFertility?: number
+  growthModifier?: number
+  minFoodAge?: number
+}
+
+interface SignalPair {
+  dist: number
+  angle: number
+}
+
+interface ResourceSignals {
+  plant: SignalPair
+  meat: SignalPair
+  carrion: SignalPair
+  danger: SignalPair
 }
 
 const MOVE_THRESHOLD = 0.3
@@ -76,9 +91,9 @@ const CHILD_SPAWN_RADIUS = 25
 const SPRINT_THROTTLE_THRESHOLD = 0.85
 const SPRINT_SPEED_MULTIPLIER = 1.2
 const SPRINT_DURATION_TICKS = 5
-const ATTACK_ENERGY_LOSS = 55
-const KILL_FEED_ENERGY_RATIO = 0.18
-const ATTACK_MIN_SPEED = 0.5
+const ATTACK_ENERGY_LOSS = 42
+const KILL_FEED_ENERGY_RATIO = 0.35
+const ATTACK_MIN_SPEED = 0.28
 const ATTACK_REACH_BONUS = 4
 const LOCKED_ATTACK_REACH_BONUS = 3
 const ATTACK_INSTINCT_DIST = 0.4
@@ -87,15 +102,24 @@ const LOCK_LEASH_RATIO = 1.4
 const MAX_LOCK_TICKS = 400
 const SEARCH_THROTTLE_FLOOR = 0.58
 const SCENT_THROTTLE_FLOOR = 0.55
-const SCENT_EAT_SIGNAL = 0.72
+const PREDATION_DRIVE_THRESHOLD = 0.1
+const MEAT_HUNT_THRESHOLD = 0.12
+const POISON_ENERGY_LOSS = 18
+const CARRION_TOXIN_RISK = 6
+const STUCK_TICKS_THRESHOLD = 55
+const SPIN_REPRODUCTION_LIMIT = 0.55
 
-export function computeMaxEnergy(size: number): number {
-  return 50 + size * 12
+export function computeMaxEnergy(
+  size: number,
+  energyStorage = 1,
+  endurance = 1,
+): number {
+  return (45 + size * 11) * energyStorage * (0.9 + endurance * 0.1)
 }
 
 export class Creature {
   readonly id: number
-  readonly species: Species
+  familyId: string
   dna: Float32Array
   brain: NeuralNetwork
   traits: CreatureTraits
@@ -110,7 +134,11 @@ export class Creature {
   fitness: number
   offspringCount: number
   foodEaten: number
+  meatEaten: number
+  carrionEaten: number
   killCount: number
+  attackAttempts: number
+  failedAttackAttempts: number
   timesAttacked: number
   distanceTraveled: number
   cumulativeTurn: number
@@ -140,10 +168,12 @@ export class Creature {
     generation = 0,
     initialEnergy = 100,
     traitDefaults?: Partial<CreatureTraits>,
-    species: Species = "herbivore",
+    _species: Species = "herbivore",
+    familyId?: string,
   ) {
+    void _species
     this.id = nextCreatureId++
-    this.species = species
+    this.familyId = familyId ?? `F${this.id.toString(36).toUpperCase()}`
     this.dna = dna ?? createRandomDNA(traitDefaults)
     this.brain = new NeuralNetwork(extractWeights(this.dna))
     this.traits = extractTraits(this.dna)
@@ -152,14 +182,22 @@ export class Creature {
     this.y = y
     this.angle = Math.random() * Math.PI * 2
     this.speed = 0
-    this.maxEnergy = computeMaxEnergy(this.traits.size)
+    this.maxEnergy = computeMaxEnergy(
+      this.traits.size,
+      this.traits.energyStorage,
+      this.traits.endurance,
+    )
     this.energy = Math.min(initialEnergy, this.maxEnergy)
     this.age = 0
     this.generation = generation
     this.fitness = 0
     this.offspringCount = 0
     this.foodEaten = 0
+    this.meatEaten = 0
+    this.carrionEaten = 0
     this.killCount = 0
+    this.attackAttempts = 0
+    this.failedAttackAttempts = 0
     this.timesAttacked = 0
     this.distanceTraveled = 0
     this.cumulativeTurn = 0
@@ -187,8 +225,27 @@ export class Creature {
     return dnaHash(this.dna)
   }
 
+  get species(): Species {
+    return classifyDiet(this.traits)
+  }
+
+  get traitAxes(): TraitAxes {
+    return computeTraitAxes(this.traits)
+  }
+
+  get canHunt(): boolean {
+    return (
+      this.traits.predationDrive >= PREDATION_DRIVE_THRESHOLD &&
+      this.traits.meatDigestEfficiency >= MEAT_HUNT_THRESHOLD
+    )
+  }
+
   syncRestingState(): void {
-    this.maxEnergy = computeMaxEnergy(this.traits.size)
+    this.maxEnergy = computeMaxEnergy(
+      this.traits.size,
+      this.traits.energyStorage,
+      this.traits.endurance,
+    )
     this.isResting = this.energy > this.maxEnergy
     if (this.isResting) {
       this.speed = 0
@@ -201,50 +258,64 @@ export class Creature {
     worldWidth: number,
     worldHeight: number,
     resources: ResourceSnapshot[],
-    obstacles: ObstacleSnapshot[],
     caps: TraitCaps,
-    threats: CreatureSenseSnapshot[] = [],
+    preySignals: CreatureSenseSnapshot[] = [],
+    predatorSignals: CreatureSenseSnapshot[] = [],
     options: ThinkOptions = {},
   ): void {
     this.syncRestingState()
-    this.effectiveVision = Math.min(this.traits.visionRange, caps.visionRange)
+    const visionModifier = options.visionModifier ?? 1
+    const scentModifier = options.scentModifier ?? 1
+    this.effectiveVision =
+      Math.min(this.traits.visionRange, caps.visionRange) * visionModifier
     this.effectiveVisionHalfAngle = (this.traits.visionHalfAngle * Math.PI) / 180
-    this.effectiveScentRange = this.traits.scentRange
+    this.effectiveScentRange = this.traits.scentRange * scentModifier
     this.effectiveHearingRange = this.traits.hearingRange
     const baseSpeed = Math.min(this.traits.maxSpeed, caps.maxSpeed)
-    this.effectiveMaxSpeed = baseSpeed * (REF_SIZE / this.traits.size)
+    const sizeDrag = Math.sqrt(REF_SIZE / this.traits.size)
+    const enduranceBoost = 0.85 + this.traits.endurance * 0.12
+    this.effectiveMaxSpeed = baseSpeed * sizeDrag * enduranceBoost
 
-    const cone = this.computeConeSignal(resources, this.effectiveVision)
-    const scent = this.computeScentSignal(resources, this.effectiveScentRange)
-    const hazard = this.computeNearestHazard(
+    const resourceSignals = this.computeResourceSignals(resources, {
+      visionRange: this.effectiveVision,
+      scentRange: this.effectiveScentRange,
+      localFertility: options.localFertility ?? 0.5,
+      growthModifier: options.growthModifier ?? 1,
+      minFoodAge: options.minFoodAge,
+    })
+    const danger = this.computeDangerSignal(
       worldWidth,
       worldHeight,
-      obstacles,
+      resources,
       this.effectiveVision,
     )
-    const creatureSignal = this.computeCreatureSignal(
-      threats,
+    const prey = this.computePreySignal(
+      preySignals,
       this.effectiveVision,
-      options.targetedByPredator ?? false,
     )
-    const hearing = this.computeHearingSignal(threats, this.effectiveHearingRange)
+    const predator = this.computeNearestCreatureSignal(
+      predatorSignals,
+      Math.max(this.effectiveVision, this.effectiveHearingRange * 0.85),
+    )
 
-    this.lastInputs[0] = cone.signal
-    this.lastInputs[1] = cone.angle
-    this.lastInputs[2] = hazard.dist
-    this.lastInputs[3] = hazard.dir
-    this.lastInputs[4] =
+    this.lastInputs[0] = resourceSignals.plant.dist
+    this.lastInputs[1] = resourceSignals.plant.angle
+    this.lastInputs[2] = resourceSignals.meat.dist
+    this.lastInputs[3] = resourceSignals.meat.angle
+    this.lastInputs[4] = resourceSignals.carrion.dist
+    this.lastInputs[5] = resourceSignals.carrion.angle
+    this.lastInputs[6] = prey.dist
+    this.lastInputs[7] = prey.angle
+    this.lastInputs[8] = predator.dist
+    this.lastInputs[9] = predator.angle
+    this.lastInputs[10] =
+      danger.dist < resourceSignals.danger.dist ? danger.dist : resourceSignals.danger.dist
+    this.lastInputs[11] =
+      danger.dist < resourceSignals.danger.dist ? danger.angle : resourceSignals.danger.angle
+    this.lastInputs[12] =
       this.maxEnergy > 0 ? this.energy / this.maxEnergy : 0
-    this.lastInputs[5] =
+    this.lastInputs[13] =
       this.effectiveMaxSpeed > 0 ? this.speed / this.effectiveMaxSpeed : 0
-    this.lastInputs[6] = creatureSignal.dist
-    this.lastInputs[7] = creatureSignal.angle
-    this.lastInputs[8] = creatureSignal.lockedOn
-    this.lastInputs[9] = creatureSignal.lockProgress
-    this.lastInputs[10] = scent.signal
-    this.lastInputs[11] = scent.angle
-    this.lastInputs[12] = hearing.signal
-    this.lastInputs[13] = hearing.angle
 
     const outputs = this.brain.forward(this.lastInputs)
     for (let i = 0; i < OUTPUT_COUNT; i++) {
@@ -254,43 +325,33 @@ export class Creature {
   }
 
   private applySpeciesInstinct(): void {
-    const threatDist = this.lastInputs[6] ?? 1
-    const threatDir = this.lastInputs[7] ?? 0
-    const lockedOn = (this.lastInputs[8] ?? 0) > 0.5
-    const scentSignal = this.lastInputs[10] ?? 0
-    const scentDir = this.lastInputs[11] ?? 0
+    const plantDist = this.lastInputs[0] ?? 1
+    const plantDir = this.lastInputs[1] ?? 0
+    const meatDist = this.lastInputs[2] ?? 1
+    const meatDir = this.lastInputs[3] ?? 0
+    const carrionDist = this.lastInputs[4] ?? 1
+    const carrionDir = this.lastInputs[5] ?? 0
+    const preyDist = this.lastInputs[6] ?? 1
+    const preyDir = this.lastInputs[7] ?? 0
+    const predatorDist = this.lastInputs[8] ?? 1
+    const predatorDir = this.lastInputs[9] ?? 0
+    const dangerDist = this.lastInputs[10] ?? 1
+    const dangerDir = this.lastInputs[11] ?? 0
     const steer = this.lastOutputs[0] ?? 0.5
     const throttle = this.lastOutputs[1] ?? 0.5
 
-    if (threatDist >= 0.9) {
-      if (this.species === "carnivore") {
-        if (scentSignal > 0.08) {
-          const scentBlend = Math.min(0.75, 0.35 + scentSignal * 0.45)
-          const scentSteer = 0.5 + scentDir * 0.4
-          this.lastOutputs[0] =
-            steer * (1 - scentBlend) + scentSteer * scentBlend
-          this.lastOutputs[1] = Math.max(
-            throttle,
-            SCENT_THROTTLE_FLOOR + scentSignal * 0.22,
-          )
-          if (scentSignal > SCENT_EAT_SIGNAL) {
-            this.lastOutputs[2] = Math.max(this.lastOutputs[2] ?? 0, 0.75)
-          }
-        } else {
-          this.lastOutputs[0] = steer * 0.4 + 0.5 * 0.6
-          this.lastOutputs[1] = Math.max(
-            throttle,
-            SEARCH_THROTTLE_FLOOR,
-          )
-        }
-      }
+    if (dangerDist < 0.16 && predatorDist >= 0.35) {
+      const urgency = Math.min(1, (0.16 - dangerDist) / 0.16)
+      const avoidSteer = 0.5 + dangerDir * 0.42
+      this.lastOutputs[0] =
+        steer * (1 - urgency * 0.55) + avoidSteer * (urgency * 0.55)
+      this.lastOutputs[1] = Math.max(throttle, 0.5 + urgency * 0.18)
       return
     }
 
-    const urgency = Math.min(1, (0.9 - threatDist) / 0.6)
-
-    if (this.species === "herbivore") {
-      const fleeSteer = 0.5 - threatDir * 0.4
+    if (predatorDist < 0.9 && !this.canHunt) {
+      const urgency = Math.min(1, (0.9 - predatorDist) / 0.6)
+      const fleeSteer = 0.5 - predatorDir * 0.4
       const fleeThrottle = 0.55 + urgency * 0.3
       this.lastOutputs[0] =
         steer * (1 - urgency * 0.65) + fleeSteer * (urgency * 0.65)
@@ -299,10 +360,54 @@ export class Creature {
       return
     }
 
+    if (!this.canHunt) {
+      if (plantDist < 0.85) {
+        const plantSignal = 1 - plantDist
+        const plantBlend = Math.min(0.55, plantSignal * 0.5)
+        this.lastOutputs[0] =
+          steer * (1 - plantBlend) + (0.5 + plantDir * 0.35) * plantBlend
+        this.lastOutputs[1] = Math.max(throttle, 0.48 + plantSignal * 0.18)
+        if (plantDist < 0.12) {
+          this.lastOutputs[2] = Math.max(this.lastOutputs[2] ?? 0, 0.72)
+        }
+      }
+      return
+    }
+
+    if (preyDist >= 0.9) {
+      const foodTargets = [
+        { dist: meatDist, dir: meatDir, eatBias: 0.8 },
+        { dist: carrionDist, dir: carrionDir, eatBias: 0.68 },
+        { dist: plantDist, dir: plantDir, eatBias: 0.55 },
+      ]
+      const bestFood = foodTargets.reduce((best, item) =>
+        item.dist < best.dist ? item : best,
+      )
+
+      if (bestFood.dist < 0.88) {
+        const signal = 1 - bestFood.dist
+        const blend = Math.min(0.72, 0.32 + signal * 0.38)
+        this.lastOutputs[0] =
+          steer * (1 - blend) + (0.5 + bestFood.dir * 0.4) * blend
+        this.lastOutputs[1] = Math.max(
+          throttle,
+          SCENT_THROTTLE_FLOOR + signal * 0.22,
+        )
+        if (bestFood.dist < 0.12) {
+          this.lastOutputs[2] = Math.max(this.lastOutputs[2] ?? 0, bestFood.eatBias)
+        }
+      } else {
+        this.lastOutputs[0] = steer * 0.4 + 0.5 * 0.6
+        this.lastOutputs[1] = Math.max(throttle, SEARCH_THROTTLE_FLOOR)
+      }
+      return
+    }
+
+    const urgency = Math.min(1, (0.9 - preyDist) / 0.6)
     const steerAuthority = 0.46
-    const steerBlend = lockedOn ? 0.92 : 0.82
-    const huntSteer = 0.5 + threatDir * steerAuthority
-    const huntThrottle = threatDist < 0.06 ? 0.62 : 0.76 + urgency * 0.16
+    const steerBlend = this.lockedTargetId !== null ? 0.92 : 0.82
+    const huntSteer = 0.5 + preyDir * steerAuthority
+    const huntThrottle = preyDist < 0.06 ? 0.62 : 0.76 + urgency * 0.16
     const huntAttack = 0.65 + urgency * 0.3
 
     this.lastOutputs[0] =
@@ -314,22 +419,35 @@ export class Creature {
   act(deltaMetabolism: number, options: ActOptions = {}): void {
     const [steerOut, throttleOut, , restOut] = this.lastOutputs
     const sprintCostMultiplier = options.sprintCostMultiplier ?? 1.8
+    const metabolismModifier = options.metabolismModifier ?? 1
 
     const prevX = this.x
     const prevY = this.y
 
+    const throttleIntent = Math.max(0, ((throttleOut ?? 0.5) - 0.5) * 2)
     const steerRaw = ((steerOut ?? 0.5) - 0.5) * 2
+    const steerAuthority =
+      (0.35 + throttleIntent * 0.65) *
+      (this.ticksSinceMove > STUCK_TICKS_THRESHOLD ? 0.55 : 1)
     const steer =
-      Math.abs(steerRaw) < STEER_DEADZONE ? 0 : steerRaw * MAX_STEER
+      Math.abs(steerRaw) < STEER_DEADZONE ? 0 : steerRaw * MAX_STEER * steerAuthority
     this.angle += steer
     this.cumulativeTurn += Math.abs(steer)
 
-    const throttle = ((throttleOut ?? 0.5) - 0.5) * 2 * MAX_THROTTLE
+    const acceleration =
+      MAX_THROTTLE *
+      this.traits.acceleration *
+      (0.75 + (REF_SIZE / this.traits.size) * 0.25)
+    let throttle = ((throttleOut ?? 0.5) - 0.5) * 2 * acceleration
+    if (this.ticksSinceMove > STUCK_TICKS_THRESHOLD) {
+      throttle = Math.max(throttle, acceleration * 0.42)
+    }
     this.speed += throttle
-    this.speed *= DRAG
+    const sizeDrag = Math.min(0.08, Math.max(0, this.traits.size - REF_SIZE) * 0.008)
+    this.speed *= DRAG - sizeDrag
 
-    const coneSignal = this.lastInputs[0] ?? 0
-    if (coneSignal > PROXIMITY_FOOD_SIGNAL) {
+    const plantDistance = this.lastInputs[0] ?? 1
+    if (plantDistance < 1 - PROXIMITY_FOOD_SIGNAL) {
       this.speed *= 0.85
     }
 
@@ -338,7 +456,7 @@ export class Creature {
     }
 
     const wantsSprint =
-      this.species === "carnivore" &&
+      this.canHunt &&
       (throttleOut ?? 0) > SPRINT_THROTTLE_THRESHOLD
 
     if (wantsSprint) {
@@ -371,16 +489,28 @@ export class Creature {
 
     const speedRatio =
       this.effectiveMaxSpeed > 0 ? this.speed / this.effectiveMaxSpeed : 0
-    const metabolism = this.traits.metabolism * deltaMetabolism
+    const metabolism =
+      this.traits.metabolism *
+      deltaMetabolism *
+      metabolismModifier *
+      (0.92 + this.traits.size / (REF_SIZE * 10)) *
+      (1.08 - Math.min(0.42, this.traits.endurance * 0.18))
     const sizeFactor = this.traits.size / REF_SIZE
     let movementCost =
-      this.speed * 0.01 * deltaMetabolism * (0.5 + speedRatio * 0.5) * sizeFactor
+      this.speed *
+      0.009 *
+      deltaMetabolism *
+      metabolismModifier *
+      (0.45 + speedRatio * 0.55) *
+      sizeFactor *
+      (1.1 - Math.min(0.45, this.traits.endurance * 0.18))
 
     if (this.isSprinting) {
       movementCost *= sprintCostMultiplier
     }
 
-    const restBonus = (restOut ?? 0) > 0.6 ? -0.005 * deltaMetabolism : 0
+    const restBonus =
+      (restOut ?? 0) > 0.6 ? -0.005 * deltaMetabolism * metabolismModifier : 0
 
     this.energy -= metabolism + movementCost + restBonus
     this.age += 1
@@ -394,15 +524,16 @@ export class Creature {
     }
   }
 
-  processResting(deltaMetabolism: number, digestSlowdown = 1): void {
+  processResting(
+    deltaMetabolism: number,
+    digestSlowdown = 1,
+    metabolismModifier = 1,
+  ): void {
     this.speed = 0
     this.isSprinting = false
     this.sprintTicksRemaining = 0
-    const drainRate =
-      this.species === "carnivore"
-        ? REST_DRAIN_RATE * digestSlowdown
-        : REST_DRAIN_RATE
-    this.energy -= drainRate * deltaMetabolism
+    const drainRate = REST_DRAIN_RATE * (this.canHunt ? digestSlowdown : 1)
+    this.energy -= drainRate * deltaMetabolism * metabolismModifier
     this.age += 1
     this.ticksSinceMove += 1
 
@@ -424,12 +555,12 @@ export class Creature {
     const eatSignal = this.lastOutputs[2] ?? 0
     if (eatSignal <= 0.5) return null
 
-    const targetType: ResourceType =
-      this.species === "herbivore" ? "food" : "meat"
-
+    let bestIndex = -1
+    let bestScore = 0
     for (let i = resources.length - 1; i >= 0; i--) {
       const resource = resources[i]!
-      if (resource.type !== targetType) continue
+      const preference = this.resourcePreference(resource.type)
+      if (preference <= 0) continue
       if (
         resource.type === "food" &&
         options.minFoodAge !== undefined &&
@@ -443,36 +574,54 @@ export class Creature {
 
       const isClose = dist < this.traits.size + EAT_CLOSE_DIST
       const speedLimit =
-        resource.type === "meat"
+        resource.type === "meat" || resource.type === "carrion"
           ? this.effectiveMaxSpeed * SPRINT_SPEED_MULTIPLIER
           : isClose
             ? EAT_SPEED_CLOSE
             : EAT_SPEED_MAX
       if (this.speed >= speedLimit) continue
 
-      if (!isClose && resource.type !== "meat") {
+      if (!isClose && resource.type !== "meat" && resource.type !== "carrion") {
         const foodAngle = angleTo(this.x, this.y, resource.x, resource.y)
         const alignment = Math.abs(this.normalizeAngle(foodAngle) * Math.PI)
         if (alignment >= EAT_ALIGNMENT) continue
       }
 
-      const resourceEnergy =
-        resource.energy ?? BASE_FOOD_ENERGY * (this.traits.size / REF_SIZE)
-      this.energy += resourceEnergy
-      if (this.species === "herbivore") {
-        this.foodEaten += 1
+      const score = preference * (1 - Math.min(1, dist / (this.traits.size + 4)))
+      if (score > bestScore) {
+        bestScore = score
+        bestIndex = i
       }
-      const eaten = { ...resource }
-      resources.splice(i, 1)
-      this.syncRestingState()
-      return eaten
     }
 
-    return null
+    if (bestIndex < 0) return null
+
+    const resource = resources[bestIndex]!
+    const digestEfficiency = this.digestEfficiency(resource.type)
+    const resourceEnergy =
+      resource.energy ?? BASE_FOOD_ENERGY * (this.traits.size / REF_SIZE)
+    this.energy += resourceEnergy * digestEfficiency
+    if (resource.type === "food") {
+      this.foodEaten += 1
+    } else if (resource.type === "meat") {
+      this.meatEaten += 1
+    } else if (resource.type === "carrion") {
+      this.carrionEaten += 1
+      const toxinRisk =
+        CARRION_TOXIN_RISK * Math.max(0.1, 1 - this.traits.toxinResistance)
+      this.energy -= toxinRisk
+    }
+    const eaten = { ...resource }
+    resources.splice(bestIndex, 1)
+    this.syncRestingState()
+    return eaten
   }
 
-  tryAttack(herbivores: Creature[]): Creature | null {
-    if (this.species !== "carnivore" || this.isResting) return null
+  tryAttack(
+    potentialPrey: Creature[],
+    options: { maxPreySizeRatio?: number } = {},
+  ): Creature | null {
+    if (!this.canHunt || this.isResting) return null
 
     const attackSignal = this.lastOutputs[2] ?? 0
     const preyProximity = this.lastInputs[6] ?? 1
@@ -484,13 +633,14 @@ export class Creature {
     const lockedPrey =
       this.lockedTargetId === null
         ? null
-        : herbivores.find((prey) => prey.id === this.lockedTargetId)
+        : potentialPrey.find((prey) => prey.id === this.lockedTargetId)
     const candidates = lockedPrey
-      ? [lockedPrey, ...herbivores.filter((prey) => prey.id !== lockedPrey.id)]
-      : herbivores
+      ? [lockedPrey, ...potentialPrey.filter((prey) => prey.id !== lockedPrey.id)]
+      : potentialPrey
 
     for (const prey of candidates) {
       if (!prey.alive || prey.id === this.id) continue
+      if (!this.canPreyOn(prey, options.maxPreySizeRatio)) continue
 
       const dist = distance(this.x, this.y, prey.x, prey.y)
       const isLockedPrey = prey.id === this.lockedTargetId
@@ -505,21 +655,40 @@ export class Creature {
       const minAttackSpeed = isLockedPrey ? ATTACK_MIN_SPEED * 0.5 : ATTACK_MIN_SPEED
       if (!inMelee && this.speed < minAttackSpeed) continue
 
-      prey.energy -= ATTACK_ENERGY_LOSS
+      this.attackAttempts += 1
+      const attackDamage =
+        ATTACK_ENERGY_LOSS *
+        (0.75 + this.traits.strength * 0.25) *
+        (this.traits.size / REF_SIZE)
+      const attackCost =
+        1.8 +
+        this.traits.metabolism * 58 +
+        this.traits.size * 0.18 +
+        this.traits.predationDrive * 0.9
+      prey.energy -= attackDamage
+      this.energy -= attackCost
       prey.timesAttacked += 1
       const killed = prey.energy <= 0
       if (killed) {
         prey.alive = false
-        this.energy += prey.maxEnergy * KILL_FEED_ENERGY_RATIO
+        this.energy +=
+          prey.maxEnergy *
+          KILL_FEED_ENERGY_RATIO *
+          Math.min(1.6, this.traits.meatDigestEfficiency + this.traits.predationDrive * 0.18)
         this.killCount += 1
+        this.meatEaten += 1
         if (this.lockedTargetId === prey.id) {
           this.lockedTargetId = null
           this.lockedTicks = 0
         }
       }
+      if (!killed) {
+        this.failedAttackAttempts += 1
+      }
 
       this.speed *= 0.7
       this.syncRestingState()
+      if (this.energy <= 0) this.alive = false
       return prey
     }
 
@@ -527,11 +696,15 @@ export class Creature {
   }
 
   tryPoison(resources: ResourceSnapshot[]): boolean {
-    for (const resource of resources) {
+    for (let index = resources.length - 1; index >= 0; index--) {
+      const resource = resources[index]!
       if (resource.type !== "poison") continue
       const dist = distance(this.x, this.y, resource.x, resource.y)
       if (dist < this.traits.size + 3) {
-        this.energy -= 40
+        const poisonDamage =
+          POISON_ENERGY_LOSS * Math.max(0.12, 1.05 - this.traits.toxinResistance)
+        this.energy -= poisonDamage
+        resources.splice(index, 1)
         this.syncRestingState()
         if (this.energy <= 0) this.alive = false
         return true
@@ -551,23 +724,47 @@ export class Creature {
       currentPopulation: number
       worldWidth: number
       worldHeight: number
+      mutationBias?: MutationBiasOptions
     },
     traitDefaults?: Partial<CreatureTraits>,
   ): Creature | null {
     if (!this.alive) return null
     if (config.currentPopulation >= config.maxPopulation) return null
     if (this.reproductionCooldown > 0) return null
-    const meetsReproductionThreshold =
-      this.species === "herbivore"
-        ? this.foodEaten >= config.minFoodToReproduce
-        : this.killCount >= (config.minKillsToReproduce ?? 3)
-    if (!meetsReproductionThreshold) return null
+    const nutritionScore =
+      this.foodEaten * this.traits.plantDigestEfficiency +
+      this.meatEaten * this.traits.meatDigestEfficiency * 1.45 +
+      this.carrionEaten *
+        this.traits.carrionDigestEfficiency *
+        (1.0 + this.traits.toxinResistance * 0.35) +
+      this.killCount * 1.05
+    const requiredNutrition =
+      this.canHunt && this.killCount > 0
+        ? config.minFoodToReproduce * 0.68
+        : this.canHunt
+          ? config.minFoodToReproduce * 0.86
+          : config.minFoodToReproduce
+    if (nutritionScore < requiredNutrition) return null
     if (this.energy < REPRODUCTION_ENERGY_RATIO * this.maxEnergy) return null
+    const spinRatio = this.cumulativeTurn / Math.max(this.distanceTraveled, 1)
+    if (
+      this.age > 80 &&
+      (this.ticksSinceMove > STUCK_TICKS_THRESHOLD * 1.6 ||
+        (spinRatio > SPIN_REPRODUCTION_LIMIT && this.distanceTraveled < this.age * 0.22))
+    ) {
+      return null
+    }
 
     const childDna = mutateDNA(
       this.dna,
       config.mutationRate,
       config.mutationStrength,
+      {
+        ...config.mutationBias,
+        meatExperience: this.meatEaten,
+        carrionExperience: this.carrionEaten,
+        killExperience: this.killCount,
+      },
     )
 
     const spawnAngle = Math.random() * Math.PI * 2
@@ -596,9 +793,12 @@ export class Creature {
       0,
       traitDefaults,
       this.species,
+      this.familyId,
     )
     child.energy = child.maxEnergy * CHILD_ENERGY_RATIO
     child.foodEaten = 0
+    child.meatEaten = 0
+    child.carrionEaten = 0
     child.reproductionCooldown = config.reproductionCooldownTicks
 
     this.energy -= this.maxEnergy * REPRODUCTION_ENERGY_COST_RATIO
@@ -607,26 +807,6 @@ export class Creature {
     this.syncRestingState()
 
     return child
-  }
-
-  resolveObstacleCollisions(obstacles: ObstacleSnapshot[]): void {
-    for (const obstacle of obstacles) {
-      const dist = distance(this.x, this.y, obstacle.x, obstacle.y)
-      const minDist = this.traits.size + obstacle.radius
-      if (dist >= minDist || dist === 0) continue
-
-      const nx = (this.x - obstacle.x) / dist
-      const ny = (this.y - obstacle.y) / dist
-      this.x = obstacle.x + nx * minDist
-      this.y = obstacle.y + ny * minDist
-
-      const vx = Math.cos(this.angle)
-      const vy = Math.sin(this.angle)
-      const dot = vx * nx + vy * ny
-      const rx = vx - 2 * dot * nx
-      const ry = vy - 2 * dot * ny
-      this.angle = Math.atan2(ry, rx)
-    }
   }
 
   clampToWorld(width: number, height: number): void {
@@ -650,58 +830,61 @@ export class Creature {
   }
 
   computeFitness(): number {
-    if (this.species === "carnivore") {
-      let score =
-        this.killCount * 15 +
-        (this.maxEnergy > 0 ? (this.energy / this.maxEnergy) * 8 : 0) +
-        this.age * 0.01
-
-      score -= this.foodEaten * 2
-
-      const spinRatio = this.cumulativeTurn / Math.max(this.distanceTraveled, 1)
-      score -= spinRatio * 2
-
-      if (this.ticksSinceMove > 40) {
-        score -= (this.ticksSinceMove - 40) * 0.05
-      }
-
-      if (this.killCount === 0) {
-        score -= this.age * 0.02
-        if (this.age > 150) {
-          score -= 10 + (this.age - 150) * 0.05
-        }
-      }
-
-      return score
-    }
-
     let score =
-      this.foodEaten * 10 +
-      this.offspringCount * 5 +
-      (this.maxEnergy > 0 ? (this.energy / this.maxEnergy) * 5 : 0)
+      this.foodEaten * 8 * this.traits.plantDigestEfficiency +
+      this.meatEaten * 13 * this.traits.meatDigestEfficiency +
+      this.carrionEaten * 7 * this.traits.carrionDigestEfficiency +
+      this.killCount * 18 +
+      this.offspringCount * 6 +
+      (this.maxEnergy > 0 ? (this.energy / this.maxEnergy) * 8 : 0)
 
-    if (this.foodEaten > 0) {
-      score += this.age * 0.02
-      const efficiency =
-        this.foodEaten / Math.max(1, this.distanceTraveled / 100)
-      score += efficiency * 3
+    const nutrition = this.foodEaten + this.meatEaten + this.carrionEaten
+    if (nutrition > 0) {
+      score += this.age * 0.015
+      const efficiency = nutrition / Math.max(1, this.distanceTraveled / 100)
+      score += efficiency * 2.5
     }
 
-    score -= this.timesAttacked * 5
+    score -= this.timesAttacked * 4
 
     const spinRatio = this.cumulativeTurn / Math.max(this.distanceTraveled, 1)
-    score -= spinRatio * 2
-
-    if (this.ticksSinceMove > 40) {
-      score -= (this.ticksSinceMove - 40) * 0.05
+    score -= spinRatio * 5
+    if (spinRatio > 0.45 && this.distanceTraveled < this.age * 0.3) {
+      score -= (spinRatio - 0.45) * this.age * 0.16
     }
 
-    if (this.foodEaten === 0) {
+    if (this.ticksSinceMove > 40) {
+      score -= (this.ticksSinceMove - 40) * 0.12
+    }
+
+    if (nutrition === 0) {
       score -= this.age * 0.02
       if (this.age > 150) {
         score -= 10 + (this.age - 150) * 0.05
       }
     }
+
+    if (this.traits.predationDrive > 0.34 && this.killCount === 0) {
+      score -= (this.traits.predationDrive - 0.34) * this.age * 0.012
+    }
+    if (this.failedAttackAttempts > this.killCount + 2) {
+      score -= (this.failedAttackAttempts - this.killCount - 2) * 0.8
+    }
+    if (this.meatEaten > 0) {
+      score += this.meatEaten * Math.max(0, this.traits.meatDigestEfficiency - 0.08) * 8
+    }
+    if (this.carrionEaten > 0) {
+      score +=
+        this.carrionEaten *
+        Math.max(0, this.traits.carrionDigestEfficiency - 0.1) *
+        (3 + this.traits.toxinResistance * 3)
+    }
+
+    if (this.carrionEaten === 0) {
+      score -= Math.max(0, this.traits.carrionDigestEfficiency - 0.35) * this.age * 0.01
+    }
+
+    score -= Math.max(0, this.traits.metabolism - 0.02) * this.age * 0.2
 
     return score
   }
@@ -720,6 +903,7 @@ export class Creature {
   }
 
   toSnapshot() {
+    const axes = this.traitAxes
     return {
       id: this.id,
       x: this.x,
@@ -732,9 +916,12 @@ export class Creature {
       fitness: this.computeFitness(),
       size: this.traits.size,
       species: this.species,
+      familyId: this.familyId,
       dnaHash: this.dnaHash,
       alive: this.alive,
       foodEaten: this.foodEaten,
+      meatEaten: this.meatEaten,
+      carrionEaten: this.carrionEaten,
       killCount: this.killCount,
       timesAttacked: this.timesAttacked,
       distanceTraveled: this.distanceTraveled,
@@ -747,6 +934,20 @@ export class Creature {
       noiseEmission: this.traits.noiseEmission,
       maxSpeed: this.effectiveMaxSpeed,
       metabolism: this.traits.metabolism,
+      perceptionScore: axes.perception,
+      biomechanicsScore: axes.biomechanics,
+      metabolismScore: axes.metabolism,
+      perceptionAccuracy: this.traits.perceptionAccuracy,
+      acceleration: this.traits.acceleration,
+      agility: this.traits.agility,
+      strength: this.traits.strength,
+      endurance: this.traits.endurance,
+      plantDigestEfficiency: this.traits.plantDigestEfficiency,
+      meatDigestEfficiency: this.traits.meatDigestEfficiency,
+      carrionDigestEfficiency: this.traits.carrionDigestEfficiency,
+      toxinResistance: this.traits.toxinResistance,
+      energyStorage: this.traits.energyStorage,
+      predationDrive: this.traits.predationDrive,
       isResting: this.isResting,
       isSprinting: this.isSprinting,
       isLocked: this.lockedTargetId !== null,
@@ -759,109 +960,149 @@ export class Creature {
     }
   }
 
-  private computeConeSignal(
+  canPreyOn(prey: Creature, maxPreySizeRatio = 0.55): boolean {
+    if (!this.canHunt || !prey.alive || prey.id === this.id) return false
+    if (this.energy < this.maxEnergy * 0.1) return false
+    if (prey.traits.size > this.traits.size * (maxPreySizeRatio + 0.08)) {
+      return false
+    }
+    return this.traits.strength * this.traits.size >= prey.traits.size * 0.62
+  }
+
+  private digestEfficiency(type: ResourceType): number {
+    if (type === "food") return this.traits.plantDigestEfficiency
+    if (type === "meat") return this.traits.meatDigestEfficiency
+    if (type === "carrion") return this.traits.carrionDigestEfficiency
+    return 0
+  }
+
+  private resourcePreference(type: ResourceType): number {
+    if (type === "poison") return 0
+    if (type === "food") {
+      return this.species === "carnivore"
+        ? Math.max(0, this.traits.plantDigestEfficiency - 0.45) * 0.35
+        : this.traits.plantDigestEfficiency
+    }
+    if (type === "meat") {
+      return this.species === "herbivore"
+        ? Math.max(0.04, this.traits.meatDigestEfficiency - 0.12) * 0.55
+        : this.traits.meatDigestEfficiency * (0.8 + this.traits.predationDrive)
+    }
+    if (type === "carrion") {
+      const basePreference =
+        this.traits.carrionDigestEfficiency * (0.7 + this.traits.toxinResistance * 0.6)
+      if (this.species === "herbivore") {
+        return Math.max(0.025, basePreference - 0.1) * 0.5
+      }
+      if (this.species === "carnivore") {
+        return basePreference * 0.75
+      }
+      return basePreference
+    }
+    return 0
+  }
+
+  private computeResourceSignals(
     resources: ResourceSnapshot[],
-    visionRange: number,
-  ): { signal: number; angle: number } {
-    const halfAngle = this.effectiveVisionHalfAngle
-    let bestSignal = 0
-    let bestAngle = 0
+    options: {
+      visionRange: number
+      scentRange: number
+      localFertility: number
+      growthModifier: number
+      minFoodAge?: number
+    },
+  ): ResourceSignals {
+    const signals: ResourceSignals = {
+      plant: { dist: 1, angle: 0 },
+      meat: { dist: 1, angle: 0 },
+      carrion: { dist: 1, angle: 0 },
+      danger: { dist: 1, angle: 0 },
+    }
+    const scores = {
+      plant: 0,
+      meat: 0,
+      carrion: 0,
+      danger: 0,
+    }
 
     for (const resource of resources) {
-      const dist = distance(this.x, this.y, resource.x, resource.y)
-      if (dist > visionRange) continue
-
+      const rawDist = distance(this.x, this.y, resource.x, resource.y)
       const resourceAngle = angleTo(this.x, this.y, resource.x, resource.y)
-      const relativeAngle = this.relativeAngle(resourceAngle)
-      if (Math.abs(relativeAngle) > halfAngle) continue
+      const normalizedAngle = this.normalizeAngle(resourceAngle)
 
-      const strength = 1 - this.normalizeDistance(dist, visionRange)
-      let signed = 0
+      if (resource.type === "food") {
+        if (rawDist > options.visionRange) continue
+
+        const maturity =
+          options.minFoodAge === undefined
+            ? 1
+            : Math.min(1, (resource.age ?? options.minFoodAge) / options.minFoodAge)
+        const normalizedDist = this.normalizeDistance(rawDist, options.visionRange)
+        const quality =
+          this.resourcePreference("food") *
+          maturity *
+          (0.65 + options.localFertility * 0.35) *
+          Math.min(1.35, options.growthModifier)
+        const score = (1 - normalizedDist) * quality
+        if (score > scores.plant) {
+          scores.plant = score
+          signals.plant = {
+            dist: Math.min(1, normalizedDist / Math.max(0.45, quality)),
+            angle: normalizedAngle,
+          }
+        }
+        continue
+      }
+
       if (resource.type === "poison") {
-        signed = -strength
-      } else if (this.species === "herbivore" && resource.type === "food") {
-        signed = strength
-      } else if (this.species === "carnivore" && resource.type === "meat") {
-        signed = strength
+        if (rawDist > options.visionRange) continue
+
+        const normalizedDist = this.normalizeDistance(rawDist, options.visionRange)
+        const score = 1 - normalizedDist
+        if (score > scores.danger) {
+          scores.danger = score
+          signals.danger = {
+            dist: normalizedDist,
+            angle: this.normalizeAngle(angleTo(resource.x, resource.y, this.x, this.y)),
+          }
+        }
+        continue
       }
 
-      if (Math.abs(signed) > Math.abs(bestSignal)) {
-        bestSignal = signed
-        bestAngle = this.normalizeAngle(resourceAngle)
-      }
-    }
+      const range = Math.max(options.visionRange * 0.75, options.scentRange)
+      if (rawDist > range) continue
 
-    return { signal: bestSignal, angle: bestAngle }
-  }
-
-  private computeScentSignal(
-    resources: ResourceSnapshot[],
-    scentRange: number,
-  ): { signal: number; angle: number } {
-    const targetType: ResourceType =
-      this.species === "herbivore" ? "food" : "meat"
-    let bestSignal = 0
-    let bestAngle = 0
-
-    for (const resource of resources) {
-      if (resource.type !== targetType) continue
-
-      const dist = distance(this.x, this.y, resource.x, resource.y)
-      if (dist > scentRange) continue
-
-      const resourceAngle = angleTo(this.x, this.y, resource.x, resource.y)
-      const strength = 1 - this.normalizeDistance(dist, scentRange)
-      const energyWeight =
-        resource.type === "meat"
-          ? Math.min(1.5, (resource.energy ?? BASE_FOOD_ENERGY) / BASE_FOOD_ENERGY)
-          : 1
-      const signal = Math.min(1, strength * energyWeight)
-
-      if (signal > bestSignal) {
-        bestSignal = signal
-        bestAngle = this.normalizeAngle(resourceAngle)
-      }
-    }
-
-    return { signal: bestSignal, angle: bestAngle }
-  }
-
-  private computeHearingSignal(
-    creatures: CreatureSenseSnapshot[],
-    hearingRange: number,
-  ): { signal: number; angle: number } {
-    let bestSignal = 0
-    let bestAngle = 0
-
-    for (const other of creatures) {
-      if (other.id === this.id) continue
-
-      const dist = distance(this.x, this.y, other.x, other.y) - other.size
-      if (dist > hearingRange) continue
-
-      const targetAngle = angleTo(this.x, this.y, other.x, other.y)
-      const speedNoise = Math.min(1, other.speed / 3)
-      const noise = other.noiseEmission * (0.35 + speedNoise * 0.65)
-      const signal = Math.min(
-        1,
-        (1 - this.normalizeDistance(Math.max(0, dist), hearingRange)) * noise,
+      const normalizedDist = this.normalizeDistance(rawDist, range)
+      const energyWeight = Math.min(
+        1.5,
+        (resource.energy ?? BASE_FOOD_ENERGY) / BASE_FOOD_ENERGY,
       )
+      const quality = this.resourcePreference(resource.type) * energyWeight
+      const score = (1 - normalizedDist) * quality
+      const signal = {
+        dist: Math.min(1, normalizedDist / Math.max(0.45, quality)),
+        angle: normalizedAngle,
+      }
 
-      if (signal > bestSignal) {
-        bestSignal = signal
-        bestAngle = this.normalizeAngle(targetAngle)
+      if (resource.type === "meat" && score > scores.meat) {
+        scores.meat = score
+        signals.meat = signal
+      }
+      if (resource.type === "carrion" && score > scores.carrion) {
+        scores.carrion = score
+        signals.carrion = signal
       }
     }
 
-    return { signal: bestSignal, angle: bestAngle }
+    return signals
   }
 
-  private computeNearestHazard(
+  private computeDangerSignal(
     worldWidth: number,
     worldHeight: number,
-    obstacles: ObstacleSnapshot[],
+    resources: ResourceSnapshot[],
     visionRange: number,
-  ): { dist: number; dir: number } {
+  ): SignalPair {
     const margin = this.traits.size
     const left = this.x - margin
     const right = worldWidth - margin - this.x
@@ -881,18 +1122,18 @@ export class Creature {
       escapeAngle = -Math.PI / 2
     }
 
-    for (const obstacle of obstacles) {
-      const centerDist = distance(this.x, this.y, obstacle.x, obstacle.y)
-      const edgeDist = centerDist - obstacle.radius - this.traits.size
-      if (edgeDist < nearestEdgeDist) {
-        nearestEdgeDist = Math.max(0, edgeDist)
-        escapeAngle = angleTo(obstacle.x, obstacle.y, this.x, this.y)
+    for (const resource of resources) {
+      if (resource.type !== "poison") continue
+      const poisonDist = distance(this.x, this.y, resource.x, resource.y)
+      if (poisonDist < nearestEdgeDist) {
+        nearestEdgeDist = poisonDist
+        escapeAngle = angleTo(resource.x, resource.y, this.x, this.y)
       }
     }
 
     return {
-      dist: 1 - this.normalizeDistance(nearestEdgeDist, visionRange),
-      dir: this.normalizeAngle(escapeAngle),
+      dist: this.normalizeDistance(nearestEdgeDist, visionRange),
+      angle: this.normalizeAngle(escapeAngle),
     }
   }
 
@@ -929,13 +1170,7 @@ export class Creature {
   private creatureSignalFromTarget(
     target: CreatureSenseSnapshot,
     visionRange: number,
-    lockedOn: number,
-  ): {
-    dist: number
-    angle: number
-    lockedOn: number
-    lockProgress: number
-  } {
+  ): SignalPair {
     const targetDist = Math.max(
       0,
       distance(this.x, this.y, target.x, target.y) - target.size,
@@ -944,29 +1179,17 @@ export class Creature {
     return {
       dist: this.normalizeDistance(targetDist, visionRange),
       angle: this.normalizeAngle(angleTo(this.x, this.y, target.x, target.y)),
-      lockedOn,
-      lockProgress: lockedOn ? Math.min(1, this.lockedTicks / MAX_LOCK_TICKS) : 0,
     }
   }
 
-  private computeCreatureSignal(
+  private computePreySignal(
     creatures: CreatureSenseSnapshot[],
     visionRange: number,
-    targetedByPredator: boolean,
-  ): {
-    dist: number
-    angle: number
-    lockedOn: number
-    lockProgress: number
-  } {
-    if (this.species !== "carnivore") {
-      const nearest = this.findNearestCreature(creatures, visionRange)
-      return {
-        dist: nearest ? this.normalizeDistance(nearest.dist, visionRange) : 1,
-        angle: nearest ? this.normalizeAngle(nearest.angle) : 0,
-        lockedOn: targetedByPredator ? 1 : 0,
-        lockProgress: 0,
-      }
+  ): SignalPair {
+    if (!this.canHunt) {
+      this.lockedTargetId = null
+      this.lockedTicks = 0
+      return { dist: 1, angle: 0 }
     }
 
     if (this.lockedTargetId !== null) {
@@ -980,7 +1203,7 @@ export class Creature {
           this.lockedTicks < MAX_LOCK_TICKS
         ) {
           this.lockedTicks += 1
-          return this.creatureSignalFromTarget(lockedTarget, visionRange, 1)
+          return this.creatureSignalFromTarget(lockedTarget, visionRange)
         }
       }
     }
@@ -990,7 +1213,7 @@ export class Creature {
 
     const nearest = this.findNearestCreature(creatures, visionRange)
     if (!nearest) {
-      return { dist: 1, angle: 0, lockedOn: 0, lockProgress: 0 }
+      return { dist: 1, angle: 0 }
     }
 
     if (nearest.dist <= visionRange * LOCK_ACQUIRE_RATIO) {
@@ -998,20 +1221,26 @@ export class Creature {
       this.lockedTicks = 1
       const target = this.findCreatureById(creatures, nearest.id)
       if (target) {
-        return this.creatureSignalFromTarget(target, visionRange, 1)
+        return this.creatureSignalFromTarget(target, visionRange)
       }
     }
 
     return {
       dist: this.normalizeDistance(nearest.dist, visionRange),
       angle: this.normalizeAngle(nearest.angle),
-      lockedOn: 0,
-      lockProgress: 0,
     }
   }
 
-  private relativeAngle(targetAngle: number): number {
-    return this.wrapAngle(targetAngle - this.angle)
+  private computeNearestCreatureSignal(
+    creatures: CreatureSenseSnapshot[],
+    range: number,
+  ): SignalPair {
+    const nearest = this.findNearestCreature(creatures, range)
+    if (!nearest) return { dist: 1, angle: 0 }
+    return {
+      dist: this.normalizeDistance(nearest.dist, range),
+      angle: this.normalizeAngle(nearest.angle),
+    }
   }
 
   private wrapAngle(angle: number): number {
@@ -1022,7 +1251,7 @@ export class Creature {
   }
 
   private normalizeDistance(dist: number, max: number): number {
-    return Math.min(1, dist / max)
+    return max <= 0 ? 1 : Math.min(1, Math.max(0, dist / max))
   }
 
   private normalizeAngle(targetAngle: number): number {
