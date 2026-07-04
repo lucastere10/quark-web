@@ -8,21 +8,29 @@ import { useSimulationStore } from "@/store/simulation-store"
 const COLORS = {
   background: 0x06060f,
   food: 0x22ff77,
-  poison: 0xff2244,
+  poison: 0xaa55ff,
+  meat: 0xff2244,
   obstacle: 0x4a4a5a,
-  energyCyan: 0x00e5cc,
-  energyAmber: 0xff9900,
-  energyRed: 0xff2244,
+  herbivoreLow: 0x3d5c34,
+  herbivoreMid: 0x4ecf7a,
+  herbivoreHigh: 0xa8ffcc,
+  carnivoreLow: 0x5c1a1a,
+  carnivoreMid: 0xe63e1a,
+  carnivoreHigh: 0xffaa55,
   selected: 0xffffff,
   elite: 0xffcc00,
-  vision: 0x00e5cc,
-  trail: 0x00e5cc,
+  visionHerbivore: 0x4ecf7a,
+  visionCarnivore: 0xff6633,
+  threatHerbivore: 0xcc44ff,
+  threatCarnivore: 0xff2244,
+  sprint: 0xffcc00,
+  restingHerbivore: 0x7dffb3,
+  restingCarnivore: 0xff8844,
 }
 
 const FADE_DURATION_MS = 450
+const KILL_EVENT_DURATION_MS = 420
 const TRAIL_LENGTH = 20
-const VISION_CONE_OFFSETS = [-Math.PI / 3, 0, Math.PI / 3] as const
-
 interface WorldTransform {
   scale: number
   offsetX: number
@@ -51,13 +59,93 @@ function energyColor(energy: number, maxEnergy: number): number {
 
   if (ratio >= 0.5) {
     return lerpColor(
-      COLORS.energyAmber,
-      COLORS.energyCyan,
+      COLORS.herbivoreMid,
+      COLORS.herbivoreHigh,
       (ratio - 0.5) * 2,
     )
   }
 
-  return lerpColor(COLORS.energyRed, COLORS.energyAmber, ratio * 2)
+  return lerpColor(COLORS.herbivoreLow, COLORS.herbivoreMid, ratio * 2)
+}
+
+function creatureBodyColor(creature: {
+  species: "herbivore" | "carnivore"
+  energy: number
+  maxEnergy: number
+}): number {
+  const ratio =
+    creature.maxEnergy > 0
+      ? Math.max(0, Math.min(1, creature.energy / creature.maxEnergy))
+      : 0
+
+  if (creature.species === "carnivore") {
+    if (ratio >= 0.5) {
+      return lerpColor(
+        COLORS.carnivoreMid,
+        COLORS.carnivoreHigh,
+        (ratio - 0.5) * 2,
+      )
+    }
+    return lerpColor(COLORS.carnivoreLow, COLORS.carnivoreMid, ratio * 2)
+  }
+
+  return energyColor(creature.energy, creature.maxEnergy)
+}
+
+function drawCarnivoreBody(
+  gfx: Graphics,
+  x: number,
+  y: number,
+  angle: number,
+  size: number,
+  color: number,
+  alpha: number,
+): void {
+  const tipX = x + Math.cos(angle) * size * 1.35
+  const tipY = y + Math.sin(angle) * size * 1.35
+  const wing = size * 0.95
+  const backAngleL = angle + (2 * Math.PI) / 3
+  const backAngleR = angle - (2 * Math.PI) / 3
+  const leftX = x + Math.cos(backAngleL) * wing
+  const leftY = y + Math.sin(backAngleL) * wing
+  const rightX = x + Math.cos(backAngleR) * wing
+  const rightY = y + Math.sin(backAngleR) * wing
+
+  gfx.moveTo(tipX, tipY)
+  gfx.lineTo(leftX, leftY)
+  gfx.lineTo(rightX, rightY)
+  gfx.closePath()
+  gfx.fill({ color, alpha })
+  gfx.stroke({ color, width: 1.2, alpha: alpha * 0.75 })
+}
+
+function drawCreatureBody(
+  gfx: Graphics,
+  creature: {
+    species: "herbivore" | "carnivore"
+    x: number
+    y: number
+    angle: number
+    size: number
+  },
+  color: number,
+  alpha: number,
+): void {
+  if (creature.species === "carnivore") {
+    drawCarnivoreBody(
+      gfx,
+      creature.x,
+      creature.y,
+      creature.angle,
+      creature.size,
+      color,
+      alpha,
+    )
+    return
+  }
+
+  gfx.circle(creature.x, creature.y, creature.size)
+  gfx.fill({ color, alpha })
 }
 
 function fadeAlpha(spawnTime: number, now: number): number {
@@ -74,6 +162,7 @@ function drawVisionWedge(
   halfAngleRad: number,
   fillAlpha: number,
   strokeAlpha: number,
+  color: number = COLORS.visionHerbivore,
 ): void {
   const start = heading + centerOffset - halfAngleRad
   const end = heading + centerOffset + halfAngleRad
@@ -82,12 +171,12 @@ function drawVisionWedge(
   gfx.arc(x, y, range, start, end)
   gfx.lineTo(x, y)
   gfx.closePath()
-  gfx.fill({ color: COLORS.vision, alpha: fillAlpha })
+  gfx.fill({ color, alpha: fillAlpha })
   gfx.moveTo(x, y)
   gfx.arc(x, y, range, start, end)
   gfx.lineTo(x, y)
   gfx.closePath()
-  gfx.stroke({ color: COLORS.vision, width: 1, alpha: strokeAlpha })
+  gfx.stroke({ color, width: 1, alpha: strokeAlpha })
 }
 
 export function SimulationCanvas() {
@@ -97,6 +186,11 @@ export function SimulationCanvas() {
   const creatureGraphicsRef = useRef<Map<number, Graphics>>(new Map())
   const resourceGraphicsRef = useRef<Map<number, Graphics>>(new Map())
   const obstacleGraphicsRef = useRef<Map<number, Graphics>>(new Map())
+  const fertilityGraphicsRef = useRef<Graphics | null>(null)
+  const killEventGraphicsRef = useRef<Graphics | null>(null)
+  const killEventAnimationsRef = useRef<
+    Map<number, { x: number; y: number; size: number; startedAt: number }>
+  >(new Map())
   const spawnTimesRef = useRef<Map<number, number>>(new Map())
   const trailRef = useRef<Map<number, { x: number; y: number }[]>>(new Map())
   const transformRef = useRef<WorldTransform>({
@@ -108,24 +202,19 @@ export function SimulationCanvas() {
     creatures: useSimulationStore.getState().creatures,
     resources: useSimulationStore.getState().resources,
     obstacles: useSimulationStore.getState().obstacles,
+    fertility: useSimulationStore.getState().fertility,
     selectedCreatureId: null as number | null,
     config: useSimulationStore.getState().config,
   })
 
   const creatures = useSimulationStore((s) => s.creatures)
   const resources = useSimulationStore((s) => s.resources)
+  const killEvents = useSimulationStore((s) => s.killEvents)
   const obstacles = useSimulationStore((s) => s.obstacles)
+  const fertility = useSimulationStore((s) => s.fertility)
   const config = useSimulationStore((s) => s.config)
   const phase = useSimulationStore((s) => s.phase)
   const selectedCreatureId = useSimulationStore((s) => s.selectedCreatureId)
-
-  renderStateRef.current = {
-    creatures,
-    resources,
-    obstacles,
-    selectedCreatureId,
-    config,
-  }
 
   const screenToWorld = (clientX: number, clientY: number) => {
     const app = appRef.current
@@ -148,7 +237,7 @@ export function SimulationCanvas() {
     const worldLayer = worldLayerRef.current
     if (!worldLayer) return
 
-    const { creatures, resources, obstacles, selectedCreatureId } =
+    const { creatures, resources, obstacles, fertility, selectedCreatureId, config } =
       renderStateRef.current
     const activeCreatureIds = new Set(creatures.map((c) => c.id))
     const activeResourceIds = new Set(resources.map((r) => r.id))
@@ -160,6 +249,57 @@ export function SimulationCanvas() {
         .slice(0, 3)
         .map((c) => c.id),
     )
+
+    let fertilityGfx = fertilityGraphicsRef.current
+    if (!fertilityGfx) {
+      fertilityGfx = new Graphics()
+      fertilityGraphicsRef.current = fertilityGfx
+      worldLayer.addChildAt(fertilityGfx, 0)
+    }
+
+    fertilityGfx.clear()
+    if (config.ecosystemMode) {
+      for (const cell of fertility) {
+        const value = Math.max(0, Math.min(1, cell.value))
+        if (value <= 0.05) continue
+
+        fertilityGfx.rect(cell.x, cell.y, cell.size, cell.size)
+        fertilityGfx.fill({
+          color: lerpColor(0x001a00, COLORS.food, value),
+          alpha: value * 0.12,
+        })
+      }
+    }
+
+    let killEventGfx = killEventGraphicsRef.current
+    if (!killEventGfx) {
+      killEventGfx = new Graphics()
+      killEventGraphicsRef.current = killEventGfx
+      worldLayer.addChildAt(killEventGfx, Math.min(2, worldLayer.children.length))
+    }
+
+    killEventGfx.clear()
+    for (const [id, event] of killEventAnimationsRef.current) {
+      const progress = (now - event.startedAt) / KILL_EVENT_DURATION_MS
+      if (progress >= 1) {
+        killEventAnimationsRef.current.delete(id)
+        continue
+      }
+
+      const alpha = (1 - progress) * 0.75
+      const radius = event.size + progress * 28
+      killEventGfx.circle(event.x, event.y, radius)
+      killEventGfx.stroke({
+        color: COLORS.meat,
+        width: 2,
+        alpha,
+      })
+      killEventGfx.circle(event.x, event.y, Math.max(2, radius * 0.35))
+      killEventGfx.fill({
+        color: COLORS.meat,
+        alpha: alpha * 0.18,
+      })
+    }
 
     for (const id of spawnTimesRef.current.keys()) {
       if (
@@ -188,7 +328,7 @@ export function SimulationCanvas() {
       if (!gfx) {
         gfx = new Graphics()
         obstacleGraphicsRef.current.set(obstacle.id, gfx)
-        worldLayer.addChildAt(gfx, 0)
+        worldLayer.addChildAt(gfx, 1)
       }
 
       const alpha = fadeAlpha(
@@ -220,14 +360,24 @@ export function SimulationCanvas() {
       if (!gfx) {
         gfx = new Graphics()
         resourceGraphicsRef.current.set(resource.id, gfx)
-        worldLayer.addChildAt(gfx, 0)
+        worldLayer.addChildAt(gfx, 1)
       }
 
+      const maturity =
+        resource.type === "food" && resource.age !== undefined
+          ? Math.min(1, resource.age / config.vegetationGrowthRate)
+          : 1
       const alpha =
         fadeAlpha(spawnTimesRef.current.get(resource.id) ?? now, now) *
-        (resource.type === "food" ? 0.9 : 0.85)
-      const color = resource.type === "food" ? COLORS.food : COLORS.poison
-      const radius = resource.type === "food" ? 3 : 4
+        (resource.type === "food" ? 0.25 + maturity * 0.65 : 0.85)
+      const color =
+        resource.type === "food"
+          ? COLORS.food
+          : resource.type === "meat"
+            ? COLORS.meat
+            : COLORS.poison
+      const radius =
+        resource.type === "food" ? 1.5 + maturity * 1.5 : resource.type === "meat" ? 2.5 : 4
 
       gfx.clear()
       gfx.circle(resource.x, resource.y, radius)
@@ -266,7 +416,7 @@ export function SimulationCanvas() {
         spawnTimesRef.current.get(creature.id) ?? now,
         now,
       )
-      const color = energyColor(creature.energy, creature.maxEnergy)
+      const color = creatureBodyColor(creature)
       const isSelected = creature.id === selectedCreatureId
       const isElite = topEliteIds.has(creature.id)
       const bodyAlpha = (creature.isResting ? 0.55 : 0.85) * spawnAlpha
@@ -295,30 +445,68 @@ export function SimulationCanvas() {
           })
         }
 
+        const visionColor =
+          creature.species === "herbivore"
+            ? COLORS.visionHerbivore
+            : COLORS.visionCarnivore
         const halfAngleRad = (creature.visionHalfAngle * Math.PI) / 180
-        for (let i = 0; i < VISION_CONE_OFFSETS.length; i++) {
-          const sectorSignal = creature.inputs[i] ?? 0
-          const fillAlpha = (0.04 + sectorSignal * 0.08) * spawnAlpha
-          const strokeAlpha = (0.15 + sectorSignal * 0.2) * spawnAlpha
+        const coneSignal = Math.abs(creature.inputs[0] ?? 0)
+        const fillAlpha = (0.05 + coneSignal * 0.1) * spawnAlpha
+        const strokeAlpha = (0.2 + coneSignal * 0.25) * spawnAlpha
+        drawVisionWedge(
+          gfx,
+          creature.x,
+          creature.y,
+          creature.angle,
+          creature.visionRange,
+          0,
+          halfAngleRad,
+          fillAlpha,
+          strokeAlpha,
+          visionColor,
+        )
+
+        const threatDist = creature.inputs[6] ?? 1
+        if (threatDist < 0.99) {
+          const threatSignal = 1 - threatDist
+          const threatColor =
+            creature.species === "herbivore"
+              ? COLORS.threatHerbivore
+              : COLORS.threatCarnivore
           drawVisionWedge(
             gfx,
             creature.x,
             creature.y,
             creature.angle,
-            creature.visionRange,
-            VISION_CONE_OFFSETS[i]!,
+            creature.visionRange * threatSignal,
+            0,
             halfAngleRad,
-            fillAlpha,
-            strokeAlpha,
+            (0.05 + threatSignal * 0.1) * spawnAlpha,
+            (0.2 + threatSignal * 0.25) * spawnAlpha,
+            threatColor,
           )
         }
       }
 
+      if (creature.isSprinting) {
+        const pulse = 0.45 + Math.sin(now / 120) * 0.2
+        gfx.circle(creature.x, creature.y, creature.size + 10)
+        gfx.stroke({
+          color: COLORS.sprint,
+          width: 2,
+          alpha: pulse * spawnAlpha,
+        })
+      }
+
       if (creature.isResting) {
         const pulse = 0.35 + Math.sin(now / 300) * 0.15
+        const restingColor =
+          creature.species === "herbivore"
+            ? COLORS.restingHerbivore
+            : COLORS.restingCarnivore
         gfx.circle(creature.x, creature.y, creature.size + 8)
         gfx.stroke({
-          color: COLORS.energyAmber,
+          color: restingColor,
           width: 1.5,
           alpha: pulse * spawnAlpha,
         })
@@ -333,8 +521,7 @@ export function SimulationCanvas() {
         })
       }
 
-      gfx.circle(creature.x, creature.y, creature.size)
-      gfx.fill({ color, alpha: bodyAlpha })
+      drawCreatureBody(gfx, creature, color, bodyAlpha)
 
       if (isSelected) {
         gfx.circle(creature.x, creature.y, creature.size + 4)
@@ -345,16 +532,24 @@ export function SimulationCanvas() {
         })
       }
 
-      const tipX = creature.x + Math.cos(creature.angle) * (creature.size + 4)
-      const tipY = creature.y + Math.sin(creature.angle) * (creature.size + 4)
-      gfx.moveTo(creature.x, creature.y)
-      gfx.lineTo(tipX, tipY)
-      gfx.stroke({ color, width: 1.5, alpha: bodyAlpha })
+      if (creature.species === "herbivore") {
+        const tipX = creature.x + Math.cos(creature.angle) * (creature.size + 4)
+        const tipY = creature.y + Math.sin(creature.angle) * (creature.size + 4)
+        gfx.moveTo(creature.x, creature.y)
+        gfx.lineTo(tipX, tipY)
+        gfx.stroke({ color, width: 1.5, alpha: bodyAlpha })
+      }
     }
   }
 
   useEffect(() => {
     let destroyed = false
+    const creatureGraphics = creatureGraphicsRef.current
+    const resourceGraphics = resourceGraphicsRef.current
+    const obstacleGraphics = obstacleGraphicsRef.current
+    const spawnTimes = spawnTimesRef.current
+    const trails = trailRef.current
+    const killEventAnimations = killEventAnimationsRef.current
 
     const init = async () => {
       if (!containerRef.current || appRef.current) return
@@ -417,11 +612,16 @@ export function SimulationCanvas() {
         appRef.current = null
       }
       worldLayerRef.current = null
-      creatureGraphicsRef.current.clear()
-      resourceGraphicsRef.current.clear()
-      obstacleGraphicsRef.current.clear()
-      spawnTimesRef.current.clear()
-      trailRef.current.clear()
+      creatureGraphics.clear()
+      resourceGraphics.clear()
+      obstacleGraphics.clear()
+      fertilityGraphicsRef.current?.destroy()
+      fertilityGraphicsRef.current = null
+      killEventGraphicsRef.current?.destroy()
+      killEventGraphicsRef.current = null
+      killEventAnimations.clear()
+      spawnTimes.clear()
+      trails.clear()
     }
   }, [])
 
@@ -448,8 +648,29 @@ export function SimulationCanvas() {
   ])
 
   useEffect(() => {
+    renderStateRef.current = {
+      creatures,
+      resources,
+      obstacles,
+      fertility,
+      selectedCreatureId,
+      config,
+    }
     redrawScene(performance.now())
-  }, [creatures, resources, obstacles, selectedCreatureId])
+  }, [creatures, resources, obstacles, fertility, selectedCreatureId, config])
+
+  useEffect(() => {
+    if (killEvents.length === 0) return
+
+    const now = performance.now()
+    for (const event of killEvents) {
+      killEventAnimationsRef.current.set(event.id, {
+        ...event,
+        startedAt: now,
+      })
+    }
+    redrawScene(now)
+  }, [killEvents])
 
   return (
     <div

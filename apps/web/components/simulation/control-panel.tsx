@@ -21,17 +21,55 @@ interface ControlPanelProps {
   onReset: () => void
 }
 
+interface ModeOptionProps {
+  title: string
+  description: string
+  active: boolean
+  disabled: boolean
+  onClick: () => void
+}
+
+function ModeOption({
+  title,
+  description,
+  active,
+  disabled,
+  onClick,
+}: ModeOptionProps) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-lg border p-3 text-left transition-colors ${
+        active
+          ? "border-[var(--quark-accent)] bg-[var(--quark-accent)]/10 text-[var(--quark-accent)]"
+          : "border-[var(--quark-border)] bg-black/20 text-foreground hover:border-[var(--quark-accent)]/40"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+    >
+      <span className="block text-xs font-medium">{title}</span>
+      <span className="mt-1 block text-[10px] leading-relaxed text-[var(--quark-muted)]">
+        {description}
+      </span>
+    </button>
+  )
+}
+
 export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
   const config = useSimulationStore((s) => s.config)
   const isRunning = useSimulationStore((s) => s.isRunning)
   const phase = useSimulationStore((s) => s.phase)
   const simulationSpeed = useSimulationStore((s) => s.simulationSpeed)
+  const simulationDynamics = useSimulationStore((s) => s.simulationDynamics)
   const setConfig = useSimulationStore((s) => s.setConfig)
+  const setDynamics = useSimulationStore((s) => s.setDynamics)
   const setRunning = useSimulationStore((s) => s.setRunning)
   const setSimulationSpeed = useSimulationStore((s) => s.setSimulationSpeed)
   const randomizeConfig = useSimulationStore((s) => s.randomizeConfig)
 
   const controlsDisabled = phase === "active"
+  const ecosystemControlsDisabled = controlsDisabled || !config.ecosystemMode
+  const generationalControlsDisabled = controlsDisabled || config.ecosystemMode
   const isIdle = phase === "idle"
   const isActive = phase === "active"
 
@@ -138,6 +176,90 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
 
           <Separator className="bg-[var(--quark-border)]" />
 
+          <CollapsibleSection title="Ecosystem">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs text-[var(--quark-muted)]">
+                  Simulation Mode
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <ModeOption
+                    title="Ecosystem"
+                    description="Continuous world with births, deaths, and spreading vegetation."
+                    active={config.ecosystemMode}
+                    disabled={controlsDisabled}
+                    onClick={() => setConfig({ ecosystemMode: true })}
+                  />
+                  <ModeOption
+                    title="Generational"
+                    description="Controlled cycles where survivors seed each next generation."
+                    active={!config.ecosystemMode}
+                    disabled={controlsDisabled}
+                    onClick={() => setConfig({ ecosystemMode: false })}
+                  />
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--quark-muted)]/80">
+                  {SLIDER_HINTS.ecosystemMode}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs text-[var(--quark-muted)]">Dynamics</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <ModeOption
+                    title="Evolutionary"
+                    description="Single-species evolution around food, poison, and terrain."
+                    active={simulationDynamics === "evolutionary"}
+                    disabled={controlsDisabled}
+                    onClick={() => setDynamics("evolutionary")}
+                  />
+                  <ModeOption
+                    title="Predator / Prey"
+                    description="Adds carnivores that hunt prey and recycle kills into meat."
+                    active={simulationDynamics === "predator-prey"}
+                    disabled={controlsDisabled}
+                    onClick={() => setDynamics("predator-prey")}
+                  />
+                </div>
+                <p className="text-[10px] leading-relaxed text-[var(--quark-muted)]/80">
+                  {SLIDER_HINTS.simulationDynamics}
+                </p>
+              </div>
+              <SliderWithHint
+                hintKey="vegetationGrowthRate"
+                label="Vegetation Growth"
+                value={config.vegetationGrowthRate}
+                min={60}
+                max={500}
+                step={20}
+                disabled={ecosystemControlsDisabled}
+                onChange={(v) => setConfig({ vegetationGrowthRate: v })}
+              />
+              <SliderWithHint
+                hintKey="vegetationSpreadRadius"
+                label="Seed Spread Radius"
+                value={config.vegetationSpreadRadius}
+                min={20}
+                max={180}
+                step={10}
+                disabled={ecosystemControlsDisabled}
+                onChange={(v) => setConfig({ vegetationSpreadRadius: v })}
+              />
+              <SliderWithHint
+                hintKey="fertilityDriftRate"
+                label="Fertility Drift"
+                value={config.fertilityDriftRate}
+                min={0}
+                max={2}
+                step={0.1}
+                disabled={ecosystemControlsDisabled}
+                format={(v) => v.toFixed(1)}
+                onChange={(v) => setConfig({ fertilityDriftRate: v })}
+              />
+            </div>
+          </CollapsibleSection>
+
+          <Separator className="bg-[var(--quark-border)]" />
+
           <CollapsibleSection title="Evolution" defaultOpen>
             <div className="space-y-4">
               <SliderWithHint
@@ -168,7 +290,7 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 min={0.1}
                 max={0.9}
                 step={0.05}
-                disabled={controlsDisabled}
+                disabled={generationalControlsDisabled}
                 format={(v) => `${(v * 100).toFixed(0)}%`}
                 onChange={(v) => setConfig({ selectionPressure: v })}
               />
@@ -179,7 +301,7 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 min={200}
                 max={1200}
                 step={50}
-                disabled={controlsDisabled}
+                disabled={generationalControlsDisabled}
                 onChange={(v) => setConfig({ generationLength: v })}
               />
               <SliderWithHint
@@ -189,7 +311,7 @@ export function ControlPanel({ onStart, onQuit, onReset }: ControlPanelProps) {
                 min={0}
                 max={5}
                 step={1}
-                disabled={controlsDisabled}
+                disabled={generationalControlsDisabled}
                 onChange={(v) => setConfig({ eliteCount: v })}
               />
             </div>

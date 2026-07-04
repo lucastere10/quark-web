@@ -30,8 +30,8 @@ export const TRAIT_RANGES: Record<TraitStatKey, TraitRange> = {
     color: "#22ff77",
   },
   averageVisionHalfAngle: {
-    min: 20,
-    max: 60,
+    min: 15,
+    max: 80,
     label: "Vision Angle",
     color: "#9933ff",
   },
@@ -77,16 +77,21 @@ export interface GenerationChartPoint {
   label: string
   tick: number
   population: number
+  herbivorePopulation: number
+  carnivorePopulation: number
   bestFitness: number
   averageFitness: number
   speciesDiversity: number
   averageFoodEaten: number
+  averageKillCount: number
   survivalRate: number
   averageSize: number
   averageVisionRange: number
   averageVisionHalfAngle: number
   averageMaxSpeed: number
   averageMetabolism: number
+  totalBirths: number
+  totalDeaths: number
   averageSizeNorm: number
   averageVisionRangeNorm: number
   averageVisionHalfAngleNorm: number
@@ -125,16 +130,21 @@ function pointFromStats(point: StatsHistoryPoint): GenerationChartPoint {
     label: `Gen ${point.generation}`,
     tick: point.tick,
     population: point.population,
+    herbivorePopulation: point.herbivorePopulation,
+    carnivorePopulation: point.carnivorePopulation,
     bestFitness: point.bestFitness,
     averageFitness: point.averageFitness,
     speciesDiversity: point.speciesDiversity,
     averageFoodEaten: point.averageFoodEaten,
+    averageKillCount: point.averageKillCount,
     survivalRate: point.survivalRate,
     averageSize: point.averageSize,
     averageVisionRange: point.averageVisionRange,
     averageVisionHalfAngle: point.averageVisionHalfAngle,
     averageMaxSpeed: point.averageMaxSpeed,
     averageMetabolism: point.averageMetabolism,
+    totalBirths: point.totalBirths,
+    totalDeaths: point.totalDeaths,
     averageSizeNorm: normalizeTrait(point.averageSize, "averageSize"),
     averageVisionRangeNorm: normalizeTrait(
       point.averageVisionRange,

@@ -27,7 +27,9 @@ function syncWorldToStore(world: World) {
   store.setStats(world.getStats())
   store.setCreatures(world.creatures.map((c) => c.toSnapshot()))
   store.setResources([...world.resources])
+  store.setKillEvents(world.drainKillEvents())
   store.setObstacles([...world.obstacles])
+  store.setFertility(world.getFertilitySnapshot())
 }
 
 function buildSessionSummary(
@@ -182,6 +184,7 @@ export function useSimulation() {
     const allObstacles = [...world.obstacles]
     const stats = world.getStats()
 
+    useSimulationStore.getState().setFertility(world.getFertilitySnapshot())
     startPreviewTransition(allCreatures, allResources, allObstacles, stats)
   }, [previewSpawnToken, phase, config, startPreviewTransition])
 
@@ -219,7 +222,9 @@ export function useSimulation() {
 
         store.setCreatures(world.creatures.map((c) => c.toSnapshot()))
         store.setResources([...world.resources])
+        store.setKillEvents(world.drainKillEvents())
         store.setObstacles([...world.obstacles])
+        store.setFertility(world.getFertilitySnapshot())
 
         tickCounterRef.current++
         if (tickCounterRef.current % STATS_INTERVAL === 0) {

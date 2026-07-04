@@ -31,6 +31,16 @@ export const SLIDER_HINTS = {
     "Random noise injected into the neural network each tick. Lower values produce steadier movement.",
   initialEnergy:
     "Starting energy for each creature at birth. Low energy creates immediate survival pressure.",
+  ecosystemMode:
+    "Runs the world continuously without generation resets. Animals survive, die, and reproduce inside the same timeline.",
+  simulationDynamics:
+    "Chooses whether the scenario runs as a herbivore-only evolutionary experiment or with predator/prey pressure.",
+  vegetationGrowthRate:
+    "Ticks required for new plants to mature. Slower growth makes grazing pressure more visible.",
+  vegetationSpreadRadius:
+    "Maximum seed spread distance from mature plants. Larger values create wider and faster-moving patches.",
+  fertilityDriftRate:
+    "Speed of moving fertile regions. Higher values make vegetation hotspots migrate through the world.",
 } as const
 
 export type SliderHintKey = keyof typeof SLIDER_HINTS

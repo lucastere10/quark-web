@@ -4,7 +4,7 @@ import {
   mutateDNA,
   type CreatureTraits,
 } from "./genetics"
-import { Creature } from "./creature"
+import { Creature, type Species } from "./creature"
 
 export function calculateFitness(creature: Creature): number {
   creature.fitness = creature.computeFitness()
@@ -59,6 +59,7 @@ export function evolveGeneration(
   worldWidth: number,
   worldHeight: number,
   traitDefaults?: Partial<CreatureTraits>,
+  species: Species = "herbivore",
 ): Creature[] {
   const alive = creatures.filter((c) => c.alive)
   alive.forEach((c) => calculateFitness(c))
@@ -70,6 +71,7 @@ export function evolveGeneration(
       worldWidth,
       worldHeight,
       traitDefaults,
+      species,
     )
   }
 
@@ -92,6 +94,7 @@ export function evolveGeneration(
       elite.generation + 1,
       config.initialEnergy,
       traitDefaults,
+      species,
     )
     nextGeneration.push(clone)
   }
@@ -114,6 +117,7 @@ export function evolveGeneration(
       Math.max(parentA.generation, parentB.generation) + 1,
       config.initialEnergy,
       traitDefaults,
+      species,
     )
 
     parentA.offspringCount += 1
@@ -130,6 +134,7 @@ export function spawnInitialPopulation(
   worldWidth: number,
   worldHeight: number,
   traitDefaults?: Partial<CreatureTraits>,
+  species: Species = "herbivore",
 ): Creature[] {
   const creatures: Creature[] = []
   for (let i = 0; i < populationSize; i++) {
@@ -141,6 +146,7 @@ export function spawnInitialPopulation(
         0,
         initialEnergy,
         traitDefaults,
+        species,
       ),
     )
   }
