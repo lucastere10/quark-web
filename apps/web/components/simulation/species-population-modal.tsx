@@ -5,75 +5,59 @@ import { X } from "lucide-react"
 
 import {
   type ChartAxisMode,
-  type TraitStatKey,
-  buildChartSeries,
+  buildSpeciesPopulationSeries,
 } from "@/lib/chart-data"
 import { useSimulationStore } from "@/store/simulation-store"
 
-import { TraitEvolutionChart } from "./trait-evolution-chart"
+import { SpeciesPopulationChart } from "./species-population-chart"
 
-interface TraitEvolutionModalProps {
+interface SpeciesPopulationModalProps {
   open: boolean
   onClose: () => void
   axisMode: ChartAxisMode
-  selectedTrait?: TraitStatKey | null
-  onSelectedTraitChange?: (trait: TraitStatKey | null) => void
 }
 
-export function TraitEvolutionModal({
+export function SpeciesPopulationModal({
   open,
   onClose,
   axisMode,
-  selectedTrait,
-  onSelectedTraitChange,
-}: TraitEvolutionModalProps) {
+}: SpeciesPopulationModalProps) {
   if (!open) return null
 
-  return (
-    <TraitEvolutionModalContent
-      onClose={onClose}
-      axisMode={axisMode}
-      selectedTrait={selectedTrait}
-      onSelectedTraitChange={onSelectedTraitChange}
-    />
-  )
+  return <SpeciesPopulationModalContent onClose={onClose} axisMode={axisMode} />
 }
 
-function TraitEvolutionModalContent({
+function SpeciesPopulationModalContent({
   onClose,
   axisMode,
-  selectedTrait,
-  onSelectedTraitChange,
-}: Omit<TraitEvolutionModalProps, "open">) {
+}: Omit<SpeciesPopulationModalProps, "open">) {
   const statsHistory = useSimulationStore((s) => s.statsHistory)
   const generationLength = useSimulationStore((s) => s.config.generationLength)
 
-  const data = useMemo(
-    () => buildChartSeries(statsHistory, axisMode, generationLength),
+  const { data, families } = useMemo(
+    () => buildSpeciesPopulationSeries(statsHistory, axisMode, generationLength),
     [statsHistory, axisMode, generationLength],
   )
 
   return (
-    <div className="pointer-events-none absolute bottom-4 right-4 z-30 w-[480px] max-w-[calc(100%-2rem)]">
+    <div className="pointer-events-none absolute bottom-4 right-4 z-30 w-[520px] max-w-[calc(100%-2rem)]">
       <div className="pointer-events-auto quark-panel rounded-lg border border-[var(--quark-border)] shadow-xl shadow-black/40">
         <div className="flex items-center justify-end border-b border-[var(--quark-border)] px-2 py-1">
           <button
             type="button"
             onClick={onClose}
             className="rounded p-1.5 text-[var(--quark-muted)] transition-colors hover:bg-black/30 hover:text-foreground"
-            aria-label="Close expanded chart"
+            aria-label="Close expanded species chart"
           >
             <X className="size-4" />
           </button>
         </div>
         <div className="p-2">
-          <TraitEvolutionChart
+          <SpeciesPopulationChart
             data={data}
+            families={families}
             axisMode={axisMode}
             height={320}
-            showExpand={false}
-            selectedTrait={selectedTrait}
-            onSelectedTraitChange={onSelectedTraitChange}
           />
         </div>
       </div>

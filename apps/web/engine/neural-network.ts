@@ -3,20 +3,20 @@ export const HIDDEN_COUNT = 8
 export const OUTPUT_COUNT = 4
 
 export const INPUT_LABELS = [
-  "Cone Signal",
-  "Cone Angle",
-  "Hazard Distance",
-  "Hazard Angle",
+  "Plant Distance",
+  "Plant Angle",
+  "Fresh Meat Distance",
+  "Fresh Meat Angle",
+  "Carrion Distance",
+  "Carrion Angle",
+  "Prey Distance",
+  "Prey Angle",
+  "Predator Distance",
+  "Predator Angle",
+  "Danger Distance",
+  "Danger Angle",
   "Energy",
   "Speed",
-  "Threat/Prey Distance",
-  "Threat/Prey Angle",
-  "Locked On",
-  "Chase Duration",
-  "Scent Signal",
-  "Scent Angle",
-  "Hearing Signal",
-  "Hearing Angle",
 ] as const
 
 export const OUTPUT_LABELS = [

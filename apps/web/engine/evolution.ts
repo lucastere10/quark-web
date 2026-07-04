@@ -6,6 +6,30 @@ import {
 } from "./genetics"
 import { Creature, type Species } from "./creature"
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function variedInitialTraits(
+  traitDefaults: Partial<CreatureTraits> = {},
+): Partial<CreatureTraits> {
+  const varied = { ...traitDefaults }
+  const jitter = (key: keyof CreatureTraits, scale: number, min: number, max: number) => {
+    const base = varied[key]
+    if (base === undefined) return
+    varied[key] = clamp(base + (Math.random() * 2 - 1) * scale, min, max)
+  }
+
+  jitter("predationDrive", 0.22, 0, 0.46)
+  jitter("meatDigestEfficiency", 0.22, 0.05, 0.58)
+  jitter("carrionDigestEfficiency", 0.16, 0.02, 0.48)
+  jitter("strength", 0.18, 0.55, 1.25)
+  jitter("size", 1.4, 3.5, 9)
+  jitter("plantDigestEfficiency", 0.16, 0.62, 1.28)
+
+  return varied
+}
+
 export function calculateFitness(creature: Creature): number {
   creature.fitness = creature.computeFitness()
   return creature.fitness
@@ -95,6 +119,7 @@ export function evolveGeneration(
       config.initialEnergy,
       traitDefaults,
       species,
+      elite.familyId,
     )
     nextGeneration.push(clone)
   }
@@ -118,6 +143,7 @@ export function evolveGeneration(
       config.initialEnergy,
       traitDefaults,
       species,
+      parentA.familyId,
     )
 
     parentA.offspringCount += 1
@@ -142,7 +168,7 @@ export function spawnInitialPopulation(
       new Creature(
         Math.random() * worldWidth,
         Math.random() * worldHeight,
-        createRandomDNA(traitDefaults),
+        createRandomDNA(variedInitialTraits(traitDefaults)),
         0,
         initialEnergy,
         traitDefaults,

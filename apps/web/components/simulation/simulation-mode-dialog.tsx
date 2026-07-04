@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -168,15 +168,19 @@ export function SimulationModeDialog({
   onSelectMode,
   onStart,
 }: SimulationModeDialogProps) {
-  const [visible, setVisible] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.localStorage.getItem(DISMISSED_KEY) !== "true",
-  )
+  const [visible, setVisible] = useState(false)
   const [dontShowAgain, setDontShowAgain] = useState(false)
   const [selectedEcosystemMode, setSelectedEcosystemMode] = useState(true)
   const [selectedDynamics, setSelectedDynamics] =
     useState<SimulationDynamics>("evolutionary")
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setVisible(window.localStorage.getItem(DISMISSED_KEY) !== "true")
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const open = phase === "idle" && visible
 
@@ -202,7 +206,7 @@ export function SimulationModeDialog({
           </DialogTitle>
           <DialogDescription>
             Quark can run as a continuous ecosystem or as a controlled
-            generational experiment, with or without predator/prey pressure.
+            generational experiment, with emergent dietary pressure.
             You can switch both later from the control panel.
           </DialogDescription>
         </DialogHeader>
@@ -246,10 +250,10 @@ export function SimulationModeDialog({
               <ModeComparisonCard
                 eyebrow="Pure evolution"
                 title="Evolutionary"
-                description="One species adapts around food, poison, terrain, and reproduction pressure."
+                description="Herbivores start alone and may branch into omnivores or carnivores."
                 points={[
-                  "Herbivore-only population",
-                  "Fitness comes from foraging",
+                  "Starts herbivore-only",
+                  "Diet can evolve",
                   "Works in every scenario",
                 ]}
                 preview={<EvolutionaryPreview />}
@@ -257,13 +261,13 @@ export function SimulationModeDialog({
                 onClick={() => setSelectedDynamics("evolutionary")}
               />
               <ModeComparisonCard
-                eyebrow="Predator/prey"
-                title="Predator / Prey"
-                description="Carnivores enter the same world, track prey, hunt, and recycle kills into meat."
+                eyebrow="Emergent predation"
+                title="Predation Pressure"
+                description="Starts with a small predator seed and looser prey-size rules so hunting niches can stabilize."
                 points={[
-                  "Population splits by role",
-                  "Hunts add selection pressure",
-                  "Works in every scenario",
+                  "Seeds a few predators",
+                  "Omnivores can still emerge",
+                  "Predators thrive when prey is abundant",
                 ]}
                 preview={<PredatorPreyPreview />}
                 active={selectedDynamics === "predator-prey"}

@@ -10,38 +10,21 @@ export interface Scenario {
   config: Partial<SimulationConfig>
 }
 
-const PREDATOR_RATIO = 0.2
-
-function splitPredatorPreyPopulation(totalPopulation: number): {
-  herbivorePop: number
-  carnivorePop: number
-} {
-  const population = Math.max(1, Math.round(totalPopulation))
-  const maxCarnivores = Math.max(0, population - 2)
-  const targetCarnivores = Math.max(2, Math.round(population * PREDATOR_RATIO))
-  const carnivorePop = Math.min(targetCarnivores, maxCarnivores)
-
-  return {
-    herbivorePop: Math.max(1, population - carnivorePop),
-    carnivorePop,
-  }
-}
-
 export function applyDynamics(
   config: SimulationConfig,
   dynamics: SimulationDynamics,
 ): SimulationConfig {
-  if (dynamics === "evolutionary") {
-    return {
-      ...config,
-      herbivorePop: config.populationSize,
-      carnivorePop: 0,
-    }
-  }
+  const seededPredators =
+    dynamics === "predator-prey"
+      ? Math.min(config.populationSize - 1, Math.max(2, Math.ceil(config.populationSize * 0.12)))
+      : 0
 
   return {
     ...config,
-    ...splitPredatorPreyPopulation(config.populationSize),
+    herbivorePop: config.populationSize - seededPredators,
+    carnivorePop: seededPredators,
+    predationMaxPreySizeRatio:
+      dynamics === "predator-prey" ? 0.68 : config.predationMaxPreySizeRatio,
   }
 }
 
@@ -65,7 +48,6 @@ export const SCENARIOS: Scenario[] = [
       maxSpeed: DEFAULT_CONFIG.maxSpeed,
       noiseStrength: DEFAULT_CONFIG.noiseStrength,
       foodDistribution: DEFAULT_CONFIG.foodDistribution,
-      obstacleCount: DEFAULT_CONFIG.obstacleCount,
       eliteCount: DEFAULT_CONFIG.eliteCount,
       sprintCostMultiplier: DEFAULT_CONFIG.sprintCostMultiplier,
       digestSlowdown: DEFAULT_CONFIG.digestSlowdown,
@@ -74,6 +56,9 @@ export const SCENARIOS: Scenario[] = [
       vegetationGrowthRate: DEFAULT_CONFIG.vegetationGrowthRate,
       vegetationSpreadRadius: DEFAULT_CONFIG.vegetationSpreadRadius,
       fertilityDriftRate: DEFAULT_CONFIG.fertilityDriftRate,
+      predationMaxPreySizeRatio: DEFAULT_CONFIG.predationMaxPreySizeRatio,
+      climateVolatility: DEFAULT_CONFIG.climateVolatility,
+      rainBias: DEFAULT_CONFIG.rainBias,
     },
   },
   {
@@ -82,8 +67,10 @@ export const SCENARIOS: Scenario[] = [
     description: "Abundant food, minimal poison — easy survival.",
     config: {
       foodDensity: 200,
-      poisonDensity: 5,
+      poisonDensity: 1,
       selectionPressure: 0.3,
+      climateVolatility: 0.35,
+      rainBias: 0.35,
     },
   },
   {
@@ -92,8 +79,10 @@ export const SCENARIOS: Scenario[] = [
     description: "Scarce food, heavy poison — only the cautious survive.",
     config: {
       foodDensity: 50,
-      poisonDensity: 60,
+      poisonDensity: 6,
       initialEnergy: 70,
+      climateVolatility: 0.65,
+      rainBias: 0.2,
     },
   },
   {
@@ -113,9 +102,11 @@ export const SCENARIOS: Scenario[] = [
     config: {
       selectionPressure: 0.8,
       foodDensity: 60,
-      poisonDensity: 30,
+      poisonDensity: 4,
       herbivorePop: 15,
       populationSize: 15,
+      climateVolatility: 0.65,
+      rainBias: -0.35,
     },
   },
   {
@@ -126,11 +117,13 @@ export const SCENARIOS: Scenario[] = [
       worldWidth: 1600,
       worldHeight: 1000,
       foodDensity: 70,
-      poisonDensity: 10,
+      poisonDensity: 2,
       maxSpeed: 4,
       visionRange: 180,
       herbivorePop: 15,
       populationSize: 15,
+      climateVolatility: 0.5,
+      rainBias: -0.25,
     },
   },
   {
@@ -140,8 +133,10 @@ export const SCENARIOS: Scenario[] = [
     config: {
       foodDistribution: "cluster",
       foodDensity: 100,
-      poisonDensity: 15,
+      poisonDensity: 2,
       selectionPressure: 0.45,
+      climateVolatility: 0.45,
+      rainBias: 0.15,
     },
   },
 ]
@@ -168,7 +163,7 @@ export function randomizeConfig(): Partial<SimulationConfig> {
     selectionPressure: randomFloat(0.1, 0.9, 0.05),
     generationLength: randomInt(200, 1200, 50),
     foodDensity: randomInt(30, 250, 10),
-    poisonDensity: randomInt(0, 80, 5),
+    poisonDensity: randomInt(0, 8, 1),
     worldWidth: randomInt(800, 1600, 50),
     worldHeight: randomInt(500, 1000, 50),
     initialEnergy: randomInt(50, 100, 5),
@@ -176,7 +171,6 @@ export function randomizeConfig(): Partial<SimulationConfig> {
     maxSpeed: randomFloat(0.5, 5, 0.1),
     noiseStrength: randomFloat(0, 0.5, 0.05),
     foodDistribution: Math.random() < 0.5 ? "uniform" : "cluster",
-    obstacleCount: randomInt(0, 16, 2),
     eliteCount: randomInt(0, 5, 1),
     minFoodToReproduce: randomInt(2, 6, 1),
     reproductionCooldownTicks: randomInt(150, 400, 25),
@@ -184,5 +178,8 @@ export function randomizeConfig(): Partial<SimulationConfig> {
     vegetationGrowthRate: randomInt(80, 360, 20),
     vegetationSpreadRadius: randomInt(30, 160, 10),
     fertilityDriftRate: randomFloat(0, 1.5, 0.1),
+    predationMaxPreySizeRatio: randomFloat(0.5, 0.75, 0.05),
+    climateVolatility: randomFloat(0, 1, 0.05),
+    rainBias: randomFloat(-0.6, 0.6, 0.05),
   }
 }

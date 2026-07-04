@@ -2,27 +2,29 @@ import type { CreatureSnapshot } from "@/store/simulation-store"
 
 export function getBehaviorHint(creature: CreatureSnapshot): string {
   if (creature.isResting) {
-    return creature.species === "carnivore"
+    return creature.species !== "herbivore"
       ? "Digesting prey — cannot move"
       : "Digesting — cannot move"
   }
 
   if (creature.isSprinting) {
-    return creature.species === "carnivore"
+    return creature.species !== "herbivore"
       ? "Sprinting to catch prey"
       : "Bursting away from threat"
   }
 
-  const coneSignal = creature.inputs[0] ?? 0
-  const hazardDist = creature.inputs[2] ?? 0
-  const threatDist = creature.inputs[6] ?? 1
-  const energy = creature.inputs[4] ?? 0
-  const scentSignal = creature.inputs[10] ?? 0
-  const hearingSignal = creature.inputs[12] ?? 0
+  const plantDist = creature.inputs[0] ?? 1
+  const meatDist = creature.inputs[2] ?? 1
+  const carrionDist = creature.inputs[4] ?? 1
+  const preyDist = creature.inputs[6] ?? 1
+  const predatorDist = creature.inputs[8] ?? 1
+  const dangerDist = creature.inputs[10] ?? 1
+  const energy = creature.inputs[12] ?? 0
+  const speed = creature.inputs[13] ?? 0
   const [, throttle, eat, rest] = creature.outputs
 
-  if (creature.species === "carnivore") {
-    if (creature.isLocked && threatDist < 0.28 && (throttle ?? 0.5) > 0.6) {
+  if (creature.species !== "herbivore") {
+    if (creature.isLocked && preyDist < 0.28 && (throttle ?? 0.5) > 0.6) {
       return "Chasing locked prey"
     }
 
@@ -30,64 +32,62 @@ export function getBehaviorHint(creature: CreatureSnapshot): string {
       return "Locked on prey - stalking"
     }
 
-    if ((eat ?? 0) > 0.5 && threatDist < 0.2) {
+    if ((eat ?? 0) > 0.5 && preyDist < 0.2) {
       return "Attempting to attack"
     }
 
-    if (threatDist < 0.35 && (throttle ?? 0.5) > 0.55) {
+    if (preyDist < 0.35 && (throttle ?? 0.5) > 0.55) {
       return "Stalking prey"
     }
 
-    if (threatDist < 0.5) {
+    if (preyDist < 0.5) {
       return "Prey detected"
     }
 
-    if (scentSignal > 0.35) {
-      return "Following meat scent"
+    if (meatDist < 0.55) {
+      return creature.species === "omnivore"
+        ? "Exploring fresh meat"
+        : "Following fresh meat"
     }
 
-    if (hearingSignal > 0.35) {
-      return "Hearing movement"
+    if (carrionDist < 0.55) {
+      return "Scavenging carrion"
     }
   } else {
-    if (threatDist < 0.35 && (throttle ?? 0.5) > 0.55) {
+    if (predatorDist < 0.35 && (throttle ?? 0.5) > 0.55) {
       return "Fleeing from predator"
     }
 
-    if (threatDist < 0.5) {
+    if (predatorDist < 0.5) {
       return "Predator nearby"
     }
 
-    if (hearingSignal > 0.35) {
-      return "Hearing predator movement"
+    if (dangerDist < 0.2) {
+      return "Danger detected - avoid"
     }
 
-    if (coneSignal < -0.25) {
-      return "Poison detected — avoid"
-    }
-
-    if ((eat ?? 0) > 0.5 && coneSignal > 0.6) {
+    if ((eat ?? 0) > 0.5 && plantDist < 0.12) {
       return "Attempting to eat"
     }
 
-    if (coneSignal > 0.2 && (throttle ?? 0.5) <= 0.55) {
+    if (plantDist < 0.55 && (throttle ?? 0.5) <= 0.55) {
       return "Approaching food"
     }
 
-    if (coneSignal > 0.15) {
+    if (plantDist < 0.75) {
       return "Food detected"
     }
 
-    if (coneSignal <= 0.05 && threatDist >= 0.99) {
+    if (plantDist >= 0.95 && predatorDist >= 0.99) {
       return "No food in range"
     }
   }
 
-  if (hazardDist > 0.5) {
+  if (dangerDist < 0.2) {
     return "Near hazard — steering away"
   }
 
-  if (creature.ticksSinceMove > 40 && creature.distanceTraveled < 50) {
+  if (creature.ticksSinceMove > 40 || (speed < 0.08 && creature.distanceTraveled < 50)) {
     return "Likely circling (low displacement)"
   }
 

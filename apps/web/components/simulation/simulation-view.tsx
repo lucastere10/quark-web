@@ -7,12 +7,16 @@ import { useSimulation } from "@/hooks/use-simulation"
 import type { ChartAxisMode, TraitStatKey } from "@/lib/chart-data"
 import { useSimulationStore } from "@/store/simulation-store"
 
+import { AdaptiveSpaceModal } from "./adaptive-space-modal"
 import { BrainPanel } from "./brain-panel"
+import { ClimateOverlay } from "./climate-overlay"
 import { ControlPanel } from "./control-panel"
 import { CreatureInspector } from "./creature-inspector"
 import { SimulationCanvas } from "./simulation-canvas"
+import { SimulationEventToasts } from "./simulation-event-toasts"
 import { SimulationModeDialog } from "./simulation-mode-dialog"
 import { SimulationSummaryDialog } from "./simulation-summary-dialog"
+import { SpeciesPopulationModal } from "./species-population-modal"
 import { StatsPanel } from "./stats-panel"
 import { TraitEvolutionModal } from "./trait-evolution-modal"
 
@@ -27,6 +31,8 @@ export function SimulationView() {
 
   const [chartAxisMode, setChartAxisMode] = useState<ChartAxisMode>("generation")
   const [traitChartExpanded, setTraitChartExpanded] = useState(false)
+  const [speciesChartExpanded, setSpeciesChartExpanded] = useState(false)
+  const [adaptiveSpaceExpanded, setAdaptiveSpaceExpanded] = useState(false)
   const [selectedTrait, setSelectedTrait] = useState<TraitStatKey | null>(null)
 
   useEffect(() => {
@@ -75,6 +81,8 @@ export function SimulationView() {
 
         <div className="relative min-h-0 flex-1 p-4">
           <SimulationCanvas />
+          <ClimateOverlay />
+          <SimulationEventToasts />
           <CreatureInspector />
           <TraitEvolutionModal
             open={traitChartExpanded}
@@ -82,6 +90,15 @@ export function SimulationView() {
             axisMode={effectiveChartAxisMode}
             selectedTrait={selectedTrait}
             onSelectedTraitChange={setSelectedTrait}
+          />
+          <SpeciesPopulationModal
+            open={speciesChartExpanded}
+            onClose={() => setSpeciesChartExpanded(false)}
+            axisMode={effectiveChartAxisMode}
+          />
+          <AdaptiveSpaceModal
+            open={adaptiveSpaceExpanded}
+            onClose={() => setAdaptiveSpaceExpanded(false)}
           />
         </div>
       </main>
@@ -92,6 +109,8 @@ export function SimulationView() {
           onChartAxisModeChange={setChartAxisMode}
           showTraitExpand={phase === "active"}
           onExpandTraitChart={() => setTraitChartExpanded(true)}
+          onExpandSpeciesChart={() => setSpeciesChartExpanded(true)}
+          onExpandAdaptiveSpace={() => setAdaptiveSpaceExpanded(true)}
           selectedTrait={selectedTrait}
           onSelectedTraitChange={setSelectedTrait}
         />

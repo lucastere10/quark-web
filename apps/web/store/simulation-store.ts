@@ -7,9 +7,11 @@ import {
   type SimulationDynamics,
 } from "@/engine/scenarios"
 import type {
+  ClimateState,
   FertilityCellSnapshot,
   KillEventSnapshot,
   SimulationConfig,
+  SimulationEvent,
   WorldStats,
 } from "@/engine/world"
 import { DEFAULT_CONFIG } from "@/engine/world"
@@ -19,6 +21,7 @@ export type SimulationPhase = "idle" | "active" | "ended"
 const DEFAULT_SCENARIO_ID = "laboratory"
 const DEFAULT_DYNAMICS: SimulationDynamics = "evolutionary"
 const INSPECTOR_MINIMIZED_KEY = "quark.creatureInspector.minimized"
+const MAX_STATS_HISTORY_POINTS = 180
 const defaultScenario = getScenarioById(DEFAULT_SCENARIO_ID)
 
 function getStoredInspectorMinimized(): boolean {
@@ -42,10 +45,13 @@ export interface CreatureSnapshot {
   generation: number
   fitness: number
   size: number
-  species: "herbivore" | "carnivore"
+  species: "herbivore" | "omnivore" | "carnivore"
+  familyId: string
   dnaHash: string
   alive: boolean
   foodEaten: number
+  meatEaten: number
+  carrionEaten: number
   killCount: number
   timesAttacked: number
   distanceTraveled: number
@@ -57,6 +63,20 @@ export interface CreatureSnapshot {
   noiseEmission: number
   maxSpeed: number
   metabolism: number
+  perceptionScore: number
+  biomechanicsScore: number
+  metabolismScore: number
+  perceptionAccuracy: number
+  acceleration: number
+  agility: number
+  strength: number
+  endurance: number
+  plantDigestEfficiency: number
+  meatDigestEfficiency: number
+  carrionDigestEfficiency: number
+  toxinResistance: number
+  energyStorage: number
+  predationDrive: number
   isResting: boolean
   isSprinting: boolean
   isLocked: boolean
@@ -72,19 +92,13 @@ export interface ResourceRenderSnapshot {
   id: number
   x: number
   y: number
-  type: "food" | "poison" | "meat"
+  type: "food" | "poison" | "meat" | "carrion"
   age?: number
   energy?: number
 }
 
 export type KillEventRenderSnapshot = KillEventSnapshot
-
-export interface ObstacleRenderSnapshot {
-  id: number
-  x: number
-  y: number
-  radius: number
-}
+export type SimulationEventSnapshot = SimulationEvent
 
 export interface StatsHistoryPoint extends WorldStats {
   timestamp: number
@@ -98,12 +112,12 @@ export interface SessionSummary {
   survivalRate: number
   peakPopulation: number
   finalAverageSize: number
-  finalAverageVision: number
-  finalAverageVisionAngle: number
-  finalAverageSpeed: number
-  finalAverageMetabolism: number
+  finalAveragePerception: number
+  finalAverageBiomechanics: number
+  finalAverageMetabolismScore: number
+  finalAveragePredationDrive: number
   peakAverageSize: number
-  peakAverageVision: number
+  peakAveragePerception: number
   statsHistory: StatsHistoryPoint[]
 }
 
@@ -113,7 +127,7 @@ interface SimulationStore {
   creatures: CreatureSnapshot[]
   resources: ResourceRenderSnapshot[]
   killEvents: KillEventRenderSnapshot[]
-  obstacles: ObstacleRenderSnapshot[]
+  simulationEvents: SimulationEventSnapshot[]
   fertility: FertilityCellSnapshot[]
   statsHistory: StatsHistoryPoint[]
   selectedCreatureId: number | null
@@ -133,8 +147,9 @@ interface SimulationStore {
   setCreatures: (creatures: CreatureSnapshot[]) => void
   setResources: (resources: ResourceRenderSnapshot[]) => void
   setKillEvents: (events: KillEventRenderSnapshot[]) => void
-  setObstacles: (obstacles: ObstacleRenderSnapshot[]) => void
+  pushSimulationEvents: (events: SimulationEventSnapshot[]) => void
   setFertility: (fertility: FertilityCellSnapshot[]) => void
+  recordStatsSample: (stats: WorldStats) => void
   pushStatsHistory: (stats: WorldStats) => void
   selectCreature: (id: number | null) => void
   setRunning: (running: boolean) => void
@@ -145,6 +160,7 @@ interface SimulationStore {
   setSessionSummary: (summary: SessionSummary | null) => void
   setBrainPanelOpen: (open: boolean) => void
   setInspectorMinimized: (minimized: boolean) => void
+  hydrateInspectorMinimized: () => void
   setDynamics: (dynamics: SimulationDynamics) => void
   applyScenario: (scenarioId: string) => void
   randomizeConfig: () => void
@@ -160,10 +176,13 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     generation: 0,
     population: 0,
     herbivorePopulation: 0,
+    omnivorePopulation: 0,
     carnivorePopulation: 0,
     bestFitness: 0,
     averageFitness: 0,
     averageFoodEaten: 0,
+    averageMeatEaten: 0,
+    averageCarrionEaten: 0,
     averageKillCount: 0,
     survivalRate: 0,
     averageLifespan: 0,
@@ -174,13 +193,36 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     averageVisionHalfAngle: 0,
     averageMaxSpeed: 0,
     averageMetabolism: 0,
+    averagePerceptionScore: 0,
+    averageBiomechanicsScore: 0,
+    averageMetabolismScore: 0,
+    averagePredationDrive: 0,
+    averageCarrionDigestEfficiency: 0,
+    averageToxinResistance: 0,
+    potentialHunterPopulation: 0,
+    meatCapablePopulation: 0,
+    failedAttackEvents: 0,
+    carrionResources: 0,
     totalBirths: 0,
     totalDeaths: 0,
+    climate: {
+      humidity: 0.55,
+      temperature: 0.5,
+      rainfall: 0.25,
+      drought: 0.35,
+      trend: "stable",
+      growthModifier: 1,
+      metabolismModifier: 1,
+      visionModifier: 1,
+      scentModifier: 1,
+      decayModifier: 1,
+    } satisfies ClimateState,
+    speciesFamilies: [],
   },
   creatures: [],
   resources: [],
   killEvents: [],
-  obstacles: [],
+  simulationEvents: [],
   fertility: [],
   statsHistory: [],
   selectedCreatureId: null,
@@ -192,7 +234,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
   simulationSpeed: 1,
   sessionSummary: null,
   brainPanelOpen: false,
-  inspectorMinimized: getStoredInspectorMinimized(),
+  inspectorMinimized: false,
   previewSpawnToken: 0,
 
   setConfig: (partial) =>
@@ -211,9 +253,25 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
 
   setKillEvents: (killEvents) => set({ killEvents }),
 
-  setObstacles: (obstacles) => set({ obstacles }),
+  pushSimulationEvents: (events) =>
+    set((state) => ({
+      simulationEvents: [...state.simulationEvents, ...events].slice(-6),
+    })),
 
   setFertility: (fertility) => set({ fertility }),
+
+  recordStatsSample: (stats) =>
+    set((state) => {
+      const point: StatsHistoryPoint = {
+        ...stats,
+        timestamp: Date.now(),
+      }
+      const history = [...state.statsHistory, point]
+      if (history.length > MAX_STATS_HISTORY_POINTS) {
+        history.shift()
+      }
+      return { stats, statsHistory: history }
+    }),
 
   pushStatsHistory: (stats) =>
     set((state) => {
@@ -222,7 +280,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
         timestamp: Date.now(),
       }
       const history = [...state.statsHistory, point]
-      if (history.length > 240) {
+      if (history.length > MAX_STATS_HISTORY_POINTS) {
         history.shift()
       }
       return { statsHistory: history }
@@ -238,7 +296,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
 
   setInitialized: (initialized) => set({ isInitialized: initialized }),
 
-  resetHistory: () => set({ statsHistory: [] }),
+  resetHistory: () => set({ statsHistory: [], simulationEvents: [] }),
 
   setPhase: (phase) => set({ phase }),
 
@@ -252,6 +310,9 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     storeInspectorMinimized(inspectorMinimized)
     set({ inspectorMinimized })
   },
+
+  hydrateInspectorMinimized: () =>
+    set({ inspectorMinimized: getStoredInspectorMinimized() }),
 
   setDynamics: (simulationDynamics) =>
     set((state) => ({
@@ -293,5 +354,6 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
       selectedCreatureId: null,
       brainPanelOpen: false,
       killEvents: [],
+      simulationEvents: [],
     }),
 }))
